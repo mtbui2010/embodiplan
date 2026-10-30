@@ -3,6 +3,21 @@
 All interface changes of embodiplan are listed here. Versions follow SemVer.
 The action rules carry their own version, `embodiplan.ACTION_MODEL_VERSION`.
 
+## 0.2.4 (action model 1.0)
+
+SAGE plans with the robot's own action list. Additions only; clients pinned
+`embodiplan>=0.2.1,<0.3` need no change.
+
+### Added
+- `SAGEPlanner(actions=None, robot_description=None)`: when given, the robot's actions
+  replace the fixed `ACTIONS_STR` vocabulary (and the `STEP_SCHEMA` rules / `JSON_EXAMPLE`
+  of actions the robot does not have) in the decompose, expand, refine and repair system
+  prompts, and the description replaces the generic "household robot" line. The decompose
+  prompt then also names the actions. Default None: prompts unchanged (golden test
+  `tests/data/sage_prompts_0_2_3.txt`). `SAGEPlanner.system_prompts` holds the four prompts.
+- `embodiplan.robot_prompt`: `system_prompts`, `step_schema`, `json_example`,
+  `actions_block`, `action_name(s)`.
+
 ## 0.2.3 (action model 1.0)
 
 SAGE's retrieval memory (SAGE_v2 report P0.8, G4, G5). Additions only; clients pinned

@@ -58,6 +58,7 @@ from embodiplan.memory_retriever import (
     MemoryRetriever, MemoryRetrieverConfig, RetrievedExample,
     format_examples_block,
 )
+from embodiplan.robot_prompt import system_prompts
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -113,6 +114,10 @@ Available robot actions:
 
 Return ONLY valid JSON:
 {JSON_EXAMPLE}"""
+
+
+_DEFAULT_SYSTEM = {"decompose": _DECOMPOSE_SYSTEM, "expand": _EXPAND_SYSTEM,
+                   "refine": _REFINE_SYSTEM, "repair": _REPAIR_SYSTEM}
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -302,6 +307,8 @@ class SAGEPlanner(BasePlanner):
         safe_refine:     bool = False,
         capabilities:    Capabilities | dict | None = None,
         leave_one_out:   bool = False,
+        actions:         list[str] | None = None,
+        robot_description: str | None = None,
         **kwargs,
     ):
         super().__init__(host=host, model=model, provider=provider, api_key=api_key)
@@ -320,6 +327,12 @@ class SAGEPlanner(BasePlanner):
         # Robot body the symbolic gate assumes (action_model.Capabilities or a
         # manifest dict); default one hand, Find reaches.
         self.capabilities = Capabilities.from_any(capabilities)
+        # The robot's own actions (names or "Name <arg>: what it does" lines) and
+        # body description replace the household defaults in the system prompts
+        # (embodiplan.robot_prompt); None keeps the default prompts unchanged.
+        self.actions           = list(actions) if actions is not None else None
+        self.robot_description = robot_description
+        self.system_prompts    = system_prompts(_DEFAULT_SYSTEM, self.actions, robot_description)
 
         if memory is not None:
             self.memory = memory
@@ -348,6 +361,11 @@ class SAGEPlanner(BasePlanner):
         # before that start (> 0 after a global fallback replan).
         self._init_state:  SymbolicState | None      = None
         self._init_offset: int                       = 0
+
+    def _system(self, key: str) -> str:
+        """The system prompt ``key`` (decompose / expand / refine / repair) for this robot."""
+        prompts = getattr(self, "system_prompts", None) or _DEFAULT_SYSTEM
+        return prompts.get(key) or _DEFAULT_SYSTEM[key]
 
     def _simulate(self, plan, **kw):
         """action_model.simulate under this planner's capabilities."""
@@ -413,7 +431,7 @@ class SAGEPlanner(BasePlanner):
             "Break this into ordered sub-goals:"
         )
         raw, in_tok, out_tok = self._chat(
-            [{"role": "system", "content": _DECOMPOSE_SYSTEM},
+            [{"role": "system", "content": self._system("decompose")},
              {"role": "user",   "content": user_msg}],
             temperature=0.3,
         )
@@ -441,7 +459,7 @@ class SAGEPlanner(BasePlanner):
             "Expand this sub-goal into action steps:"
         )
         raw, in_tok, out_tok = self._chat(
-            [{"role": "system", "content": _EXPAND_SYSTEM},
+            [{"role": "system", "content": self._system("expand")},
              {"role": "user",   "content": user_msg}],
             temperature=0.2,
         )
@@ -474,7 +492,7 @@ class SAGEPlanner(BasePlanner):
             f"{feedback}"
         )
         raw, in_tok, out_tok = self._chat(
-            [{"role": "system", "content": _REFINE_SYSTEM},
+            [{"role": "system", "content": self._system("refine")},
              {"role": "user",   "content": user_msg}],
             temperature=0.1,
         )
@@ -716,7 +734,7 @@ class SAGEPlanner(BasePlanner):
 
         try:
             raw, in_tok, out_tok = self._chat(
-                [{"role": "system", "content": _REPAIR_SYSTEM},
+                [{"role": "system", "content": self._system("repair")},
                  {"role": "user",   "content": user_msg}],
                 temperature=0.1,
             )
