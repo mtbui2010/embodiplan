@@ -37,6 +37,7 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 import re
 import time
@@ -300,6 +301,7 @@ class SAGEPlanner(BasePlanner):
         enable_local_repair: bool = True,
         safe_refine:     bool = False,
         capabilities:    Capabilities | dict | None = None,
+        leave_one_out:   bool = False,
         **kwargs,
     ):
         super().__init__(host=host, model=model, provider=provider, api_key=api_key)
@@ -328,6 +330,7 @@ class SAGEPlanner(BasePlanner):
                 use_chroma  = use_chroma,
                 chroma_path = chroma_path,
                 top_k       = top_k,
+                leave_one_out = leave_one_out,
             ))
         else:
             self.memory = None  # type: ignore[assignment]
@@ -907,11 +910,15 @@ class SAGEPlanner(BasePlanner):
     # ─────────────────────────────────────────────────────────────
     # Episode logging (hook for carerobotagent / benchmark scripts)
     # ─────────────────────────────────────────────────────────────
-    def record_episode(self, task: str, plan: list[dict], success: bool = True) -> bool:
+    def record_episode(self, task: str, plan: list[dict], success: bool = True,
+                       *, meta: dict | None = None) -> bool:
         """Append a successful trajectory to the live memory pool, only when it
         verifies: `success` and the plan passes the symbolic gate (from the
         plan's starting belief when `task` is the last planned task). A
         trajectory that does not verify would teach the next plans its error.
+        The record carries ``verified: true``, its start belief (``init_state``,
+        what ``memory_tools clean`` re-checks the plan from), the action-model
+        version and the caller's `meta` (e.g. how the goals were verified).
         Returns True when recorded."""
         if self.memory is None or not success or not plan:
             return False
@@ -921,7 +928,20 @@ class SAGEPlanner(BasePlanner):
         if not self._simulate(normalize_plan(plan)[offset:], initial_state=init).ok:
             print(f"[SAGE] episode not recorded (plan does not verify): {task!r}")
             return False
-        self.memory.add_episode(task=task, plan=plan, success=success)
+        from embodiplan.action_model import ACTION_MODEL_VERSION
+        from embodiplan.memory_tools import state_dict
+        # the belief at the plan's start (after a global fallback it is the belief after
+        # the first `offset` steps: not stored, the whole plan is then re-checked from empty)
+        rec = {"verified": True, "action_model": ACTION_MODEL_VERSION, **(meta or {})}
+        if offset == 0:
+            rec.setdefault("init_state", state_dict(init))
+        add = self.memory.add_episode
+        try:
+            takes_meta = "meta" in inspect.signature(add).parameters
+        except (TypeError, ValueError):
+            takes_meta = False
+        # a memory passed in (duck-typed, older signature) gets the plain call
+        add(task=task, plan=plan, success=success, **({"meta": rec} if takes_meta else {}))
         return True
 
 

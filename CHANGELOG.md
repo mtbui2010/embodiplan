@@ -3,6 +3,36 @@
 All interface changes of embodiplan are listed here. Versions follow SemVer.
 The action rules carry their own version, `embodiplan.ACTION_MODEL_VERSION`.
 
+## 0.2.3 (action model 1.0)
+
+SAGE's retrieval memory (SAGE_v2 report P0.8, G4, G5). Additions only; clients pinned
+`embodiplan>=0.2.1,<0.3` need no change.
+
+### Added
+- `embodiplan.memory_tools` and its CLI
+  `python -m embodiplan.memory_tools clean IN.jsonl --out OUT.jsonl [--exclude-tasks FILE] [--report]`:
+  writes the episodes worth retrieving to OUT (IN is never written) and prints what was
+  dropped and why: unparseable, `excluded` (a test-set task, exact or near match),
+  `unverified` (`verified: false`, no flag with `--require-verified`, or the plan fails the
+  action model from the episode's start belief), `duplicate`, `near_duplicate`, and
+  `over_cap` (`--max-per-task N`). `--capabilities` takes a JSON body or a manifest file.
+  Helpers: `task_key`, `same_task`, `plan_signature`, `verify_episode`, `clean`, `clean_file`,
+  `load_tasks`. See docs/memory.md.
+- Leave-one-out retrieval: `MemoryRetriever.retrieve(query, k, leave_one_out=True)`,
+  `MemoryRetrieverConfig(leave_one_out=True, loo_threshold=0.92)` and
+  `SAGEPlanner(leave_one_out=True)` never return an example whose task is the query or a
+  near-duplicate of it. `MEM_LEAVE_ONE_OUT=1` still works and now drops near-duplicates too.
+- JSONL seed pools: `gt_path` (and `load_seed_examples`) also reads a `.jsonl` file of
+  episode records (`{task, reasoning?, plan_text | steps}`), e.g. a robot's curated seed
+  pool. `memory_retriever.SEED_FORMATS == ("json", "jsonl")` tells clients it is supported.
+- `MemoryRetriever.add_episode(..., meta=None)` stores extra fields with the record.
+
+### Changed
+- `SAGEPlanner.record_episode(task, plan, success=True, *, meta=None)`: a recorded episode
+  now carries `verified: true`, `init_state` (the plan's start belief), `action_model` and the
+  caller's `meta`. The record is still one JSON line; older readers ignore the new keys.
+  Non-ASCII tasks are written as UTF-8 instead of `\u` escapes.
+
 ## 0.2.2 (action model 1.0)
 
 SAGE suffix-repair fixes (SAGE_v2 report R1-R4, G1, G4). No signature removed; clients pinned
