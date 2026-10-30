@@ -3,6 +3,19 @@
 All interface changes of embodiplan are listed here. Versions follow SemVer.
 The action rules carry their own version, `embodiplan.ACTION_MODEL_VERSION`.
 
+## 0.2.5 (action model 1.0)
+
+SAGE's decompose answer is parsed robustly. No interface change.
+
+### Fixed
+- `SAGEPlanner` decompose: a sub-goal list a 7-8B model split into step words
+  (`["MoveTo", "counter@kitchen", "Find", "apple", ...]`), wrote as step-shaped dicts
+  (`{"action", "object"}`) or word lists, or followed by a second JSON object, now gives one
+  sub-goal per step (`"MoveTo counter@kitchen"`, `"Find apple"`); the no-JSON fallback keeps
+  quoted values, never JSON keys. Before, every word (and key) became a sub-goal that was
+  expanded to a whole plan (T2: 61 steps in 22 blocks for a two-object task). The action names
+  are the planner's (`actions`, else `ROBOT_ACTIONS`).
+
 ## 0.2.4 (action model 1.0)
 
 SAGE plans with the robot's own action list. Additions only; clients pinned
