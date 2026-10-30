@@ -49,6 +49,17 @@ Step fields: `action`, `object` (CamelCase AI2-THOR name), `target` (for Place),
 
 Valid actions: `MoveTo Find Pick Place PutIn Open Close TurnOn TurnOff Wash Sit LieOn Serve Wait`
 
+### A robot's own actions (SAGE, 0.2.4)
+
+`SAGEPlanner(actions=[...], robot_description="...")` plans for one robot instead of the
+generic household one: the decompose / expand / refine / repair system prompts list only
+`actions` (bare names or lines `"Name <arg>: what it does"`), keep only the action rules,
+container rule and JSON examples whose actions the robot has, and open with the robot's
+description instead of "household robot". Both default to None: the prompts are then
+byte-identical to 0.2.3 (`tests/data/sage_prompts_0_2_3.txt`). The helpers are in
+`embodiplan.robot_prompt` (`system_prompts`, `step_schema`, `json_example`).
+robot_agent passes both from the robot's manifest (its docs/planner_guide.md).
+
 ## Backends
 
 Configured per planner via constructor args:
