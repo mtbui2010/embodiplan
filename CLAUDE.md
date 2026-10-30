@@ -17,4 +17,5 @@ Docs index: [docs/README.md](docs/README.md). Usage, registry, file map: [docs/u
 ## Docs
 
 - [docs/usage.md](docs/usage.md): usage, registry keys, output, backends, key files
+- [docs/memory.md](docs/memory.md): SAGE memory: record format, `memory_tools clean`, leave-one-out
 - [docs/rules.md](docs/rules.md): rules with reasons
