@@ -45,7 +45,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from embodiplan.base import (
-    ACTIONS_STR, JSON_EXAMPLE, STEP_SCHEMA,
+    ACTIONS_STR, JSON_EXAMPLE, STEP_SCHEMA, ROBOT_ACTIONS,
     BasePlanner, PlanMetrics, parse_steps,
     DEFAULT_HOST, DEFAULT_MODEL, DEFAULT_BACKEND,
 )
@@ -160,17 +160,68 @@ class _SubgoalBlock:
     refine_rejected: bool = False # a refine output failed re-verification (prior steps kept)
 
 
-def _parse_subgoals(raw: str) -> list[str]:
-    raw = re.sub(r"```json|```", "", raw).strip()
+# keys a model wraps sub-goals in: never a sub-goal themselves
+_SUBGOAL_KEYS = {"subgoals", "subgoal", "sub_goals", "steps", "action", "object", "name", "description"}
+
+
+def _subgoal_text(item) -> str:
+    """One sub-goal as text: a string; a step-shaped dict ``{"action", "object"}`` or a dict with a
+    ``subgoal`` / ``name`` / ``description``; a list of words (``["MoveTo", "desk"]``)."""
+    if isinstance(item, dict):
+        for k in ("subgoal", "name", "description", "goal", "text"):
+            if isinstance(item.get(k), str) and item[k].strip():
+                return item[k].strip()
+        a, o = item.get("action"), item.get("object")
+        return f"{a} {o or ''}".strip() if a else ""
+    if isinstance(item, (list, tuple)):
+        return " ".join(str(x).strip() for x in item if str(x).strip())
+    return str(item).strip()
+
+
+def _pair_actions(items: list, actions) -> list:
+    """Sub-goals a model split into words ("MoveTo", "desk@study room", "Find", "apple", ...) joined
+    back to one per step ("MoveTo desk@study room", "Find apple"): a bare action name takes the item
+    after it when that item is not an action name itself. Phrases pass unchanged."""
+    names, out = set(actions or ()), []
+    for it in items:
+        if out and out[-1] in names and it not in names:
+            out[-1] = f"{out[-1]} {it}"
+        else:
+            out.append(it)
+    return out
+
+
+def _subgoal_data(raw: str):
+    """The model's JSON: the whole answer, else the first JSON value in it (a model that wrote two
+    objects, or prose around one); None when there is none."""
     try:
-        data = json.loads(raw)
-        if isinstance(data, dict):
-            return [str(s).strip() for s in data.get("subgoals", []) if str(s).strip()]
-        if isinstance(data, list):
-            return [str(s).strip() for s in data if str(s).strip()]
+        return json.loads(raw)
     except json.JSONDecodeError:
         pass
-    return [m.strip() for m in re.findall(r'"([^"]{5,})"', raw)]
+    dec = json.JSONDecoder()
+    for m in re.finditer(r"[\[{]", raw):
+        try:
+            return dec.raw_decode(raw[m.start():])[0]
+        except json.JSONDecodeError:
+            continue
+    return None
+
+
+def _parse_subgoals(raw: str, actions=ROBOT_ACTIONS) -> list[str]:
+    """The decompose answer as sub-goal phrases. 7-8B models also answer with step-shaped items
+    (``{"action": "MoveTo", "object": ...}``), with the steps split into words, or with two JSON
+    objects in a row; each becomes one sub-goal per step (``actions``: the action names), never one
+    per word or JSON key (a 22-block plan of one-word sub-goals, T2 H01)."""
+    raw = re.sub(r"```json|```", "", raw).strip()
+    data = _subgoal_data(raw)
+    if isinstance(data, dict):
+        data = next((data[k] for k in ("subgoals", "sub_goals", "steps") if isinstance(data.get(k), list)), [])
+    if isinstance(data, list):
+        items = [_subgoal_text(s) for s in data]
+    else:                                        # no JSON: the quoted strings that are not keys
+        items = [t.strip() for t, key in re.findall(r'"((?:[^"\\]|\\.)*)"\s*(:?)', raw) if not key]
+        items = [t for t in items if len(t) > 1 and t.lower() not in _SUBGOAL_KEYS]
+    return _pair_actions([t for t in items if t], actions)
 
 
 # Public name of the block type (robot_agent drives sub-goal edits on it).
@@ -362,6 +413,11 @@ class SAGEPlanner(BasePlanner):
         self._init_state:  SymbolicState | None      = None
         self._init_offset: int                       = 0
 
+    def _action_names(self) -> list:
+        """The action names this planner plans with (the robot's, else the default vocabulary)."""
+        from embodiplan.robot_prompt import action_names
+        return action_names(self.actions) if getattr(self, "actions", None) else list(ROBOT_ACTIONS)
+
     def _system(self, key: str) -> str:
         """The system prompt ``key`` (decompose / expand / refine / repair) for this robot."""
         prompts = getattr(self, "system_prompts", None) or _DEFAULT_SYSTEM
@@ -435,7 +491,7 @@ class SAGEPlanner(BasePlanner):
              {"role": "user",   "content": user_msg}],
             temperature=0.3,
         )
-        return _parse_subgoals(raw), in_tok, out_tok
+        return _parse_subgoals(raw, self._action_names()), in_tok, out_tok
 
     # ── expand one sub-goal ────────────────────────────────────────
     def _expand(
