@@ -85,8 +85,16 @@ def _format_reasoning(task: str, expected_objects: list[str] | None,
 # ─────────────────────────────────────────────────────────────────────
 # Seed loader: eval_dataset_gt.json → RetrievedExample list
 # ─────────────────────────────────────────────────────────────────────
+# Seed file formats load_seed_examples reads (".jsonl" since 0.2.3); clients
+# check it before passing a JSONL seed pool as `gt_path`.
+SEED_FORMATS = ("json", "jsonl")
+
+
 def load_seed_examples(gt_path: str) -> list[RetrievedExample]:
-    """Parse eval_dataset_gt.json into RetrievedExample seed entries.
+    """Parse a seed pool into RetrievedExample seed entries: eval_dataset_gt.json
+    (``{"samples": [{task_desc, reference_steps, ...}]}``), or a ``.jsonl`` file of
+    episode records (``{task, reasoning?, plan_text | steps}`` per line, the live
+    memory's format; a robot's curated seed pool).
 
     The GT file uses legacy action names (Navigate, Grab); we normalize
     them through embodiplan.verifier.normalize_plan() before serializing
@@ -94,6 +102,8 @@ def load_seed_examples(gt_path: str) -> list[RetrievedExample]:
     """
     if not os.path.exists(gt_path):
         return []
+    if gt_path.endswith(".jsonl"):
+        return _load_seed_jsonl(gt_path)
 
     with open(gt_path, "r", encoding="utf-8") as f:
         data = json.load(f)
@@ -126,6 +136,25 @@ def load_seed_examples(gt_path: str) -> list[RetrievedExample]:
     return examples
 
 
+def _load_seed_jsonl(path: str) -> list[RetrievedExample]:
+    from embodiplan.memory_tools import plan_steps, read_jsonl
+    out = []
+    for rec in read_jsonl(path):
+        if not isinstance(rec, dict) or not str(rec.get("task") or "").strip():
+            continue
+        steps = plan_steps(rec)
+        if not steps:
+            continue
+        out.append(RetrievedExample(
+            task      = rec["task"].strip(),
+            reasoning = rec.get("reasoning") or _format_reasoning(rec["task"], None, None),
+            plan_text = _plan_to_text(normalize_plan(steps)),
+            score     = 0.0,
+            source    = "seed",
+        ))
+    return out
+
+
 # ─────────────────────────────────────────────────────────────────────
 # MemoryRetriever — hybrid (seed + live), Chroma-or-Jaccard backend
 # ─────────────────────────────────────────────────────────────────────
@@ -137,6 +166,10 @@ class MemoryRetrieverConfig:
     chroma_path:    str  = ""
     chroma_collection: str = "grace_memory"  # pre-rename name, kept so existing stores load
     top_k:          int  = 3
+    # Leave-one-out (evaluation): never return an example whose task is the
+    # query or a near-duplicate of it (memory_tools.same_task at loo_threshold).
+    leave_one_out:  bool  = False
+    loo_threshold:  float = 0.92
 
 
 class MemoryRetriever:
@@ -193,8 +226,11 @@ class MemoryRetriever:
         return out
 
     def add_episode(self, task: str, plan: list[dict],
-                    reasoning: str = "", success: bool = True) -> None:
-        """Append a successful plan to the live pool and persist to disk."""
+                    reasoning: str = "", success: bool = True,
+                    meta: dict | None = None) -> None:
+        """Append a successful plan to the live pool and persist to disk.
+        `meta` (e.g. ``verified``, ``init_state``, ``evidence``) is stored with the
+        record; the fields above win over a `meta` key of the same name."""
         if not success or not plan:
             return
         ex = RetrievedExample(
@@ -209,11 +245,12 @@ class MemoryRetriever:
             os.makedirs(os.path.dirname(self.cfg.live_path) or ".", exist_ok=True)
             with open(self.cfg.live_path, "a", encoding="utf-8") as f:
                 f.write(json.dumps({
+                    **(meta or {}),
                     "task":      ex.task,
                     "reasoning": ex.reasoning,
                     "plan_text": ex.plan_text,
                     "ts":        time.time(),
-                }) + "\n")
+                }, ensure_ascii=False) + "\n")
         if self._chroma_col is not None:
             self._add_to_chroma(ex, source_tag="episode")
 
@@ -282,23 +319,23 @@ class MemoryRetriever:
         return [e for e in scored[:k] if e.score > 0.0] or scored[:k]
 
     # ── unified retrieve ───────────────────────────────────────────
-    def retrieve(self, query: str, k: int | None = None) -> list[RetrievedExample]:
+    def retrieve(self, query: str, k: int | None = None, *,
+                 leave_one_out: bool | None = None) -> list[RetrievedExample]:
+        """Top-k examples for `query`. With leave-one-out (`leave_one_out=True`, the
+        config's `leave_one_out`, or MEM_LEAVE_ONE_OUT=1) an example whose task is
+        the query or a near-duplicate of it is never returned: the retriever then
+        supplies SIMILAR examples, never the exact answer (no train-on-test leak)."""
         k = k if k is not None else self.cfg.top_k
-        # Leave-one-out (opt-in via MEM_LEAVE_ONE_OUT=1): drop any retrieved
-        # example whose task is identical to the query. This removes the
-        # train-on-test leak when seed memory overlaps the test set — the
-        # retriever then supplies SIMILAR examples, never the exact answer.
-        loo = os.getenv("MEM_LEAVE_ONE_OUT", "0") == "1"
-        kk = k + 3 if loo else k
-        hits = []
-        if self._chroma_col is not None:
-            hits = self._query_chroma(query, kk)
-        if not hits:
-            hits = self._query_jaccard(query, kk)
-        if loo:
-            q = query.strip().lower()
-            hits = [h for h in hits if h.task.strip().lower() != q]
-        return hits[:k]
+        loo = leave_one_out if leave_one_out is not None else (
+            self.cfg.leave_one_out or os.getenv("MEM_LEAVE_ONE_OUT", "0") == "1")
+        if not loo:
+            hits = self._query_chroma(query, k) if self._chroma_col is not None else []
+            return (hits or self._query_jaccard(query, k))[:k]
+        from embodiplan.memory_tools import same_task
+        keep = lambda hs: [h for h in hs if not same_task(h.task, query, self.cfg.loo_threshold)]
+        n = len(self._seed) + len(self._live)
+        hits = keep(self._query_chroma(query, n)) if self._chroma_col is not None else []
+        return (hits or keep(self._query_jaccard(query, n)))[:k]
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -325,4 +362,5 @@ __all__ = [
     "MemoryRetriever",
     "load_seed_examples",
     "format_examples_block",
+    "SEED_FORMATS",
 ]
