@@ -3,7 +3,10 @@
 All interface changes of embodiplan are listed here. Versions follow SemVer.
 The action rules carry their own version, `embodiplan.ACTION_MODEL_VERSION`.
 
-## 0.2.0 (action model 1.0)
+## 0.2.1 (action model 1.0)
+
+First release with the public action model. 0.2.0 was the version label before it existed, so
+clients pin `embodiplan>=0.2.1,<0.3` to be sure the API below is present.
 
 ### Added
 - `embodiplan.action_model`: the one public source of the action rules.

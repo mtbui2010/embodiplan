@@ -54,7 +54,7 @@ from embodiplan.saycan       import SayCanPlanner
 from embodiplan              import action_model
 from embodiplan.action_model import ACTION_MODEL_VERSION
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 
 import os as _os
 
