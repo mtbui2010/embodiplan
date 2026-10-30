@@ -52,6 +52,7 @@ from embodiplan.verifier import (
     SymbolicState, simulate, normalize_plan,
     format_violations_for_llm, DEFAULT_CONTAINERS,
 )
+from embodiplan.action_model import Capabilities
 from embodiplan.memory_retriever import (
     MemoryRetriever, MemoryRetrieverConfig, RetrievedExample,
     format_examples_block,
@@ -165,7 +166,11 @@ def _parse_subgoals(raw: str) -> list[str]:
     return [m.strip() for m in re.findall(r'"([^"]{5,})"', raw)]
 
 
-def _flatten(blocks: list[_SubgoalBlock]) -> list[dict]:
+# Public name of the block type (robot_agent drives sub-goal edits on it).
+SubgoalBlock = _SubgoalBlock
+
+
+def flatten(blocks: list[_SubgoalBlock]) -> list[dict]:
     """Concatenate sub-goal blocks, applying symbolic-state-aware dedupe.
 
     A common failure mode of hierarchical decomposition is that each sub-goal
@@ -183,7 +188,7 @@ def _flatten(blocks: list[_SubgoalBlock]) -> list[dict]:
 
     Pick/Place are never dropped (they have side-effects on holding/arrived).
     """
-    from embodiplan.verifier import SymbolicState, _apply  # local import — keep verifier optional
+    from embodiplan.action_model import SymbolicState, apply
     out: list[dict] = []
     state = SymbolicState()
     for b in blocks:
@@ -206,8 +211,11 @@ def _flatten(blocks: list[_SubgoalBlock]) -> list[dict]:
             if redundant:
                 continue
             out.append(s)
-            _apply(s, state)
+            apply(s, state, inplace=True)
     return out
+
+
+_flatten = flatten  # pre-0.2 private name, still used by older robot_agent
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -238,6 +246,7 @@ class SAGEPlanner(BasePlanner):
         enable_memory:   bool = True,
         enable_local_repair: bool = True,
         safe_refine:     bool = False,
+        capabilities:    Capabilities | dict | None = None,
         **kwargs,
     ):
         super().__init__(host=host, model=model, provider=provider, api_key=api_key)
@@ -253,6 +262,9 @@ class SAGEPlanner(BasePlanner):
         # Optional live-progress hook: callable(dict) invoked at decompose /
         # expand / refine boundaries. Default None -> no-op (no behavior change).
         self.progress = None
+        # Robot body the symbolic gate assumes (action_model.Capabilities or a
+        # manifest dict); default one hand, Find reaches.
+        self.capabilities = Capabilities.from_any(capabilities)
 
         if memory is not None:
             self.memory = memory
@@ -270,6 +282,43 @@ class SAGEPlanner(BasePlanner):
         # Track the last decomposition so .replan can localize the failure.
         self._last_blocks: list[_SubgoalBlock] | None = None
         self._last_task:   str                       = ""
+
+    def _simulate(self, plan, **kw):
+        """action_model.simulate under this planner's capabilities."""
+        return simulate(plan, capabilities=self.capabilities, **kw)
+
+    # ── public editing surface (used by robot_agent's assist loop) ─
+    @property
+    def last_blocks(self) -> list[SubgoalBlock] | None:
+        """Sub-goal blocks of the last generate_plan (None before the first)."""
+        return self._last_blocks
+
+    def retrieve_examples(self, task: str) -> tuple[list[RetrievedExample], str]:
+        """Memory examples for `task` and their prompt block ("" without memory)."""
+        return self._retrieve_block(task)
+
+    def edit_block(
+        self,
+        block:           SubgoalBlock,
+        feedback:        str,
+        *,
+        task:            str,
+        state:           SymbolicState | None = None,
+        obs:             str = "",
+        visible_objects: list[str] | None = None,
+        examples_block:  str | None = None,
+    ) -> list[dict]:
+        """SAGE's sub-goal-local Editing: re-do one block's steps given
+        `feedback` (e.g. checker findings). `state` is the symbolic state at
+        the start of the block; `examples_block` defaults to the memory
+        examples for `task`. Returns the new steps (the block is not changed;
+        [] when the LLM output did not parse). Raises on LLM errors."""
+        if examples_block is None:
+            examples_block = self._retrieve_block(task)[1]
+        steps, _in, _out = self._refine(block.name, task, list(block.steps), feedback,
+                                        state or SymbolicState(), obs,
+                                        list(visible_objects or []), examples_block)
+        return steps
 
     # ── retrieval helper ──────────────────────────────────────────
     def _retrieve_block(self, task: str) -> tuple[list[RetrievedExample], str]:
@@ -433,7 +482,7 @@ class SAGEPlanner(BasePlanner):
             if self.enable_verifier and steps:
                 attempt = 0
                 while attempt < self.max_refines:
-                    report = simulate(steps, initial_state=state,
+                    report = self._simulate(steps, initial_state=state,
                                       visible_objects=visible_objects)
                     if report.ok:
                         break
@@ -477,7 +526,7 @@ class SAGEPlanner(BasePlanner):
             # (re-simulate so it reflects the last refine, not a stale report).
             if self.progress and steps:
                 try:
-                    final = simulate(steps, initial_state=state, visible_objects=visible_objects)
+                    final = self._simulate(steps, initial_state=state, visible_objects=visible_objects)
                     self.progress({"phase": "verified", "index": _gi, "subgoal": sg,
                                    "ok": bool(final.ok),
                                    "violations": _ser_violations(final),
@@ -488,7 +537,7 @@ class SAGEPlanner(BasePlanner):
             #    we are committing to.  Subsequent sub-goals see the
             #    post-condition.  Use stop_on_error=False so optimistic
             #    progress is preserved even if some violations remain.
-            sim = simulate(steps, initial_state=state,
+            sim = self._simulate(steps, initial_state=state,
                            visible_objects=visible_objects,
                            stop_on_error=False)
             state = sim.final_state or state
@@ -550,7 +599,7 @@ class SAGEPlanner(BasePlanner):
         # Re-simulate completed steps to recover the symbolic state at
         # the moment of failure.  This is cheaper and more reliable than
         # passing observation strings to the LLM as "the world".
-        state_at_failure = simulate(
+        state_at_failure = self._simulate(
             completed,
             visible_objects=visible_objects,
             stop_on_error=False,
@@ -598,7 +647,7 @@ class SAGEPlanner(BasePlanner):
         refines = 0
         verifier_rejections = 0
         if self.enable_verifier and suffix:
-            report = simulate(suffix, initial_state=state_at_failure,
+            report = self._simulate(suffix, initial_state=state_at_failure,
                               visible_objects=visible_objects)
             if not report.ok:
                 verifier_rejections += 1
@@ -721,4 +770,4 @@ class SAGEPlanner(BasePlanner):
             self.memory.add_episode(task=task, plan=plan, success=success)
 
 
-__all__ = ["SAGEPlanner"]
+__all__ = ["SAGEPlanner", "SubgoalBlock", "flatten"]

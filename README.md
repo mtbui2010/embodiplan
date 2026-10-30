@@ -160,6 +160,25 @@ new_steps, m = planner.replan(
 )
 ```
 
+### Action model (public, versioned)
+
+The symbolic rules (preconditions and effects) live in one module,
+`embodiplan.action_model` (`ACTION_MODEL_VERSION`). SAGE's gate, SayCan's
+affordance, the evaluation gate and robot_agent all call it.
+
+```python
+from embodiplan import action_model as am
+
+am.check(step, world, capabilities={"hands": 1})   # -> [Violation(code, reason, severity)]
+am.apply(step, world)                               # -> world after the step (a copy)
+am.simulate(plan, world)                            # -> VerifierReport(ok, violations, warnings, final_state)
+```
+
+`world` is any object with `arrived`, `found`, `holding`, `opened`, `on`.
+Rule changes are listed in [CHANGELOG.md](CHANGELOG.md). SAGE's sub-goal-local
+edit is public too: `planner.edit_block(block, feedback, task=...)`,
+`planner.last_blocks`, `planner.retrieve_examples(task)`, `embodiplan.sage.flatten(blocks)`.
+
 ---
 
 ## thor_app — the demo application

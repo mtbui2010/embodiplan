@@ -51,6 +51,8 @@ from embodiplan.my_planner   import HierarchicalFewShotPlanner
 from embodiplan.sage         import SAGEPlanner
 from embodiplan.llmp         import LLMPPlanner
 from embodiplan.saycan       import SayCanPlanner
+from embodiplan              import action_model
+from embodiplan.action_model import ACTION_MODEL_VERSION
 
 __version__ = "0.2.0"
 
@@ -70,6 +72,7 @@ __all__ = [
     "hierarchical_few_shot", "sage", "grace",
     "get", "list_methods",
     "REGISTRY", "ALIASES", "DATA_DIR", "GT_DATASET",
+    "action_model", "ACTION_MODEL_VERSION",
 ]
 
 # Deprecated names kept so old configs and result files still resolve.
