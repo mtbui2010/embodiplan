@@ -151,6 +151,7 @@ class _SubgoalBlock:
     name:    str
     steps:   list[dict] = field(default_factory=list)
     refined: bool       = False   # was at least one refine pass triggered?
+    refine_rejected: bool = False # a refine output failed re-verification (prior steps kept)
 
 
 def _parse_subgoals(raw: str) -> list[str]:
@@ -188,10 +189,16 @@ def flatten(blocks: list[_SubgoalBlock]) -> list[dict]:
 
     Pick/Place are never dropped (they have side-effects on holding/arrived).
     """
+    return _flatten_owned(blocks)[0]
+
+
+def _flatten_owned(blocks: list[_SubgoalBlock]) -> tuple[list[dict], list[int]]:
+    """:func:`flatten` plus, for every kept step, the index of its block."""
     from embodiplan.action_model import SymbolicState, apply
     out: list[dict] = []
+    owners: list[int] = []
     state = SymbolicState()
-    for b in blocks:
+    for bi, b in enumerate(blocks):
         for s in b.steps:
             a = s.get("action")
             o = s.get("object") or ""
@@ -211,11 +218,57 @@ def flatten(blocks: list[_SubgoalBlock]) -> list[dict]:
             if redundant:
                 continue
             out.append(s)
+            owners.append(bi)
             apply(s, state, inplace=True)
-    return out
+    return out, owners
 
 
 _flatten = flatten  # pre-0.2 private name, still used by older robot_agent
+
+
+def _blocks_sig(blocks) -> tuple:
+    """What the blocks plan, to see that someone (robot_agent's edit) changed them."""
+    return tuple(tuple((s.get("action"), s.get("object")) for s in b.steps) for b in blocks or ())
+
+
+_BELIEF_KEYS = re.compile(r"\b(arrived|found|holding|opened|on)\s*[=:]\s*")
+_NO_VALUE = {"", "-", "∅", "none", "None", "nothing", "set()"}
+
+
+def belief_from_obs(obs: str) -> SymbolicState | None:
+    """The robot's belief from the last ``Robot state: ...`` line of an observation
+    (robot_agent's ``WorldState.as_text()`` ``arrived=X found=- holding=- opened=[A, B] on=[-]``
+    or ``SymbolicState.as_text()``); None when the observation has no such line."""
+    lines = [l for l in (obs or "").splitlines() if "Robot state:" in l]
+    if not lines:
+        return None
+    parts = _BELIEF_KEYS.split(lines[-1].split("Robot state:", 1)[1])
+    vals = {k: v.strip().strip("|").strip() for k, v in zip(parts[1::2], parts[2::2])}
+    if not vals:
+        return None
+
+    def one(k):
+        v = vals.get(k, "").strip("'\"")
+        return None if v in _NO_VALUE else v
+
+    def many(k):
+        items = (x.strip().strip("'\"") for x in vals.get(k, "").strip().strip("[]{}").split(","))
+        return {x for x in items if x not in _NO_VALUE}
+
+    return SymbolicState(arrived=one("arrived"), found=one("found"), holding=one("holding"),
+                         opened=many("opened"), on=many("on"))
+
+
+def _as_state(world) -> SymbolicState:
+    """A SymbolicState copy of a duck-typed world (SymbolicState, robot_agent's WorldState, dict)."""
+    get = world.get if isinstance(world, dict) else (lambda k, d=None: getattr(world, k, d))
+    return SymbolicState(arrived=get("arrived"), found=get("found"), holding=get("holding"),
+                         opened=set(get("opened") or ()), on=set(get("on") or ()),
+                         visible=set(get("visible") or ()))
+
+
+def _n_errors(report) -> int:
+    return len(getattr(report, "violations", []) or [])
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -282,6 +335,16 @@ class SAGEPlanner(BasePlanner):
         # Track the last decomposition so .replan can localize the failure.
         self._last_blocks: list[_SubgoalBlock] | None = None
         self._last_task:   str                       = ""
+        # Which block every step of the plan being executed belongs to (the
+        # plan = completed + what generate_plan / replan returned), for the
+        # blocks whose signature is _owners_sig; recomputed by flatten when
+        # the blocks were edited from outside (robot_agent's sub-goal edit).
+        self._owners:      list[int] | None          = None
+        self._owners_sig:  tuple                     = ()
+        # Belief at the start of the plan and the number of completed steps
+        # before that start (> 0 after a global fallback replan).
+        self._init_state:  SymbolicState | None      = None
+        self._init_offset: int                       = 0
 
     def _simulate(self, plan, **kw):
         """action_model.simulate under this planner's capabilities."""
@@ -422,7 +485,12 @@ class SAGEPlanner(BasePlanner):
         task:            str,
         obs:             str,
         visible_objects: list[str],
+        *,
+        state:           Any = None,
     ) -> tuple[list[dict], PlanMetrics]:
+        """Plan `task`. The symbolic gate starts from `state` (a SymbolicState
+        or a duck-typed world), else from the ``Robot state:`` line of `obs`,
+        else from an empty state."""
         t0          = time.perf_counter()
         llm_calls   = 0
         total_in    = 0
@@ -450,8 +518,11 @@ class SAGEPlanner(BasePlanner):
             try: self.progress({"phase": "decompose", "subgoals": list(subgoals)})
             except Exception: pass
 
-        # 3. Expand each sub-goal under symbolic-state tracking.
-        state = SymbolicState(visible=set(visible_objects))
+        # 3. Expand each sub-goal under symbolic-state tracking, from the belief.
+        start = state if state is not None else belief_from_obs(obs)
+        init_state = _as_state(start) if start is not None else SymbolicState()
+        init_state.visible |= set(visible_objects)
+        state = init_state.copy()
         blocks: list[_SubgoalBlock] = []
 
         for _gi, sg in enumerate(subgoals):
@@ -481,11 +552,9 @@ class SAGEPlanner(BasePlanner):
             # 4. Symbolic verification + (≤max_refines) refinements.
             if self.enable_verifier and steps:
                 attempt = 0
-                while attempt < self.max_refines:
-                    report = self._simulate(steps, initial_state=state,
-                                      visible_objects=visible_objects)
-                    if report.ok:
-                        break
+                report = self._simulate(steps, initial_state=state,
+                                        visible_objects=visible_objects)
+                while attempt < self.max_refines and not report.ok:
                     verifier_rejections += 1
                     # Emit the violations that triggered this refinement.
                     if self.progress:
@@ -508,7 +577,14 @@ class SAGEPlanner(BasePlanner):
                             # Refine returned empty (parse failure) — keep
                             # the prior steps rather than wiping them.
                             break
-                        steps = new_steps
+                        # Re-verify the refined steps before using them: an
+                        # edit with more violations than its input is dropped.
+                        new_report = self._simulate(new_steps, initial_state=state,
+                                                    visible_objects=visible_objects)
+                        if self._worse(new_steps, new_report, steps, state, visible_objects):
+                            block.refine_rejected = True
+                            break
+                        steps, report = new_steps, new_report
                         # Stream the steps produced by this refine pass.
                         if self.progress:
                             try: self.progress({"phase": "refined", "index": _gi,
@@ -563,10 +639,10 @@ class SAGEPlanner(BasePlanner):
                 "verifier_rejections": verifier_rejections,
                 "subgoal_block_sizes": [len(b.steps) for b in blocks],
                 "refined_blocks":      [b.refined for b in blocks],
+                "refine_rejected":     [b.refine_rejected for b in blocks],
             },
         )
-        self._last_blocks = blocks
-        self._last_task   = task
+        self._remember(task, blocks, _flatten_owned(blocks)[1], init_state, 0)
         print(
             f"[SAGE] subgoals={len(blocks)} steps={len(flat)} "
             f"refines={refines} latency={metrics.latency_s:.1f}s "
@@ -585,27 +661,30 @@ class SAGEPlanner(BasePlanner):
         failure_reason:  str,
         obs:             str,
         visible_objects: list[str],
+        *,
+        state:           Any = None,
     ) -> tuple[list[dict], PlanMetrics]:
+        """Repair the sub-goal the failed step belongs to. The repair starts
+        from the belief at the failure: `state` when given, else the
+        ``Robot state:`` line of `obs`, else the plan's starting belief
+        replayed through `completed`."""
         t0 = time.perf_counter()
         completed = normalize_plan(completed)
 
         # If local repair is disabled or we have no prior decomposition,
         # fall back to a fresh hierarchical plan over the remainder
         # (same behavior as HierarchicalFewShotPlanner).
+        # The symbolic state at the moment of failure (see the docstring);
+        # cheaper and more reliable than the LLM reading the obs as "the world".
+        state_at_failure = self._state_at_failure(completed, visible_objects, state, obs)
         if not self.enable_local_repair or not self._last_blocks or self._last_task != task:
-            return self._global_replan(task, completed, failed_step,
-                                       failure_reason, obs, visible_objects, t0)
+            return self._global_replan(task, completed, failed_step, failure_reason, obs,
+                                       visible_objects, t0, state_at_failure)
 
-        # Re-simulate completed steps to recover the symbolic state at
-        # the moment of failure.  This is cheaper and more reliable than
-        # passing observation strings to the LLM as "the world".
-        state_at_failure = self._simulate(
-            completed,
-            visible_objects=visible_objects,
-            stop_on_error=False,
-        ).final_state or SymbolicState(visible=set(visible_objects))
-
-        current_sg, remaining_after = self._locate_failed_subgoal(completed)
+        cur_idx = self._failed_block_index(len(completed))
+        current_sg = self._last_blocks[cur_idx].name
+        future_blocks = self._last_blocks[cur_idx + 1:]
+        remaining_after, future_owners = _flatten_owned(future_blocks)
         retrieved, ex_block = self._retrieve_block(current_sg or task)
 
         # Build a single LLM call asking only for the suffix of the
@@ -646,9 +725,10 @@ class SAGEPlanner(BasePlanner):
         # Verify the suffix; one refinement pass if invalid.
         refines = 0
         verifier_rejections = 0
+        refine_rejected = False
         if self.enable_verifier and suffix:
             report = self._simulate(suffix, initial_state=state_at_failure,
-                              visible_objects=visible_objects)
+                                    visible_objects=visible_objects)
             if not report.ok:
                 verifier_rejections += 1
                 feedback = format_violations_for_llm(report, suffix)
@@ -661,7 +741,14 @@ class SAGEPlanner(BasePlanner):
                     out_tok += out_r
                     refines += 1
                     if not (self.safe_refine and not new_suffix):
-                        suffix = new_suffix
+                        # Re-verify before use (as in generate_plan).
+                        new_report = self._simulate(new_suffix, initial_state=state_at_failure,
+                                                    visible_objects=visible_objects)
+                        if self._worse(new_suffix, new_report, suffix, state_at_failure,
+                                       visible_objects):
+                            refine_rejected = True
+                        else:
+                            suffix = new_suffix
                 except Exception as e:
                     print(f"[SAGE] Repair-refine error: {e}")
 
@@ -669,6 +756,7 @@ class SAGEPlanner(BasePlanner):
         # has the rest of the plan.  If we don't have any, just return
         # the suffix.
         full_remaining = suffix + remaining_after
+        self._remember_repair(completed, cur_idx, suffix, remaining_after, future_owners)
 
         metrics = PlanMetrics(
             method        = self.name,
@@ -685,6 +773,7 @@ class SAGEPlanner(BasePlanner):
                 "repaired_subgoal":    current_sg,
                 "refines":             refines,
                 "verifier_rejections": verifier_rejections,
+                "refine_rejected":     refine_rejected,
                 "suffix_len":          len(suffix),
                 "kept_future_len":     len(remaining_after),
             },
@@ -703,36 +792,82 @@ class SAGEPlanner(BasePlanner):
         self,
         completed: list[dict],
     ) -> tuple[str | None, list[dict]]:
-        """Walk the last decomposition to find which sub-goal the failure
-        belongs to, and return (subgoal_name, steps_after_current_subgoal).
-
-        Approach: each block contributed `len(block.steps)` steps; walk
-        the completed-counter through the blocks. The first block whose
-        cumulative count exceeds the completed length is the active one.
-        """
+        """Which sub-goal the failure belongs to, and the (flattened) steps of
+        the sub-goals after it: (subgoal_name, steps_after_current_subgoal)."""
         if not self._last_blocks:
             return None, []
+        k = self._failed_block_index(len(completed))
+        return self._last_blocks[k].name, _flatten(self._last_blocks[k + 1:])
 
-        flat = _flatten(self._last_blocks)
-        # Map completed count → block index via cumulative sizes of the
-        # flattened (deduped) plan.  We approximate by matching positions
-        # in the flat plan: completed_count clamped to len(flat).
-        n_done = min(len(completed), len(flat))
+    def _remember(self, task, blocks, owners, init_state, init_offset) -> None:
+        """Book-keep the plan being executed (see __init__)."""
+        self._last_blocks = blocks
+        self._last_task   = task
+        self._owners      = list(owners)
+        self._owners_sig  = _blocks_sig(blocks)
+        self._init_state  = init_state
+        self._init_offset = init_offset
 
-        cum = 0
-        cur_idx = 0
-        for i, b in enumerate(self._last_blocks):
-            cum += len(b.steps)
-            if n_done < cum:
-                cur_idx = i
-                break
-        else:
-            cur_idx = len(self._last_blocks) - 1
+    def _current_owners(self) -> list[int]:
+        """Block index of every plan step: the book-kept one, or flatten's
+        when the blocks were changed since (positions are post-dedupe)."""
+        if self._owners is None or _blocks_sig(self._last_blocks) != self._owners_sig:
+            self._owners = _flatten_owned(self._last_blocks)[1]
+            self._owners_sig = _blocks_sig(self._last_blocks)
+        return self._owners
 
-        cur_block = self._last_blocks[cur_idx]
-        future_blocks = self._last_blocks[cur_idx + 1:]
-        future_steps  = _flatten(future_blocks)
-        return cur_block.name, future_steps
+    def _failed_block_index(self, n_done: int) -> int:
+        """The block of the step after the `n_done` completed ones (the failed step)."""
+        owners = self._current_owners()
+        if n_done < len(owners):
+            return owners[n_done]
+        return owners[-1] if owners else len(self._last_blocks) - 1
+
+    def _state_at_failure(self, completed, visible_objects, state=None, obs="") -> SymbolicState:
+        if state is None:
+            state = belief_from_obs(obs)
+        if state is not None:
+            out = _as_state(state)
+            out.visible |= set(visible_objects)
+            return out
+        init = self._init_state.copy() if self._init_state is not None else SymbolicState()
+        init.visible |= set(visible_objects)
+        return self._simulate(completed[self._init_offset:], initial_state=init,
+                              visible_objects=visible_objects,
+                              stop_on_error=False).final_state or init
+
+    def _remember_repair(self, completed, cur_idx, suffix, future, future_owners) -> None:
+        """Write a local repair back into the blocks: the done steps stay with
+        their blocks, the current block ends with the repaired suffix, the
+        later blocks keep their (flattened) steps. The plan being executed is
+        now completed + suffix + future, and the next failure is located on it."""
+        owners = self._current_owners()
+        done_owner = [owners[i] if i < len(owners) else cur_idx for i in range(len(completed))]
+        done_owner = [min(o, cur_idx) for o in done_owner]
+        fut = [o + cur_idx + 1 for o in future_owners]
+        new_blocks = []
+        for j, b in enumerate(self._last_blocks):
+            if j < cur_idx:
+                steps = [s for s, o in zip(completed, done_owner) if o == j]
+            elif j == cur_idx:
+                steps = [s for s, o in zip(completed, done_owner) if o == j] + list(suffix)
+            else:
+                steps = [s for s, o in zip(future, fut) if o == j]
+            new_blocks.append(_SubgoalBlock(name=b.name, steps=steps, refined=b.refined,
+                                            refine_rejected=b.refine_rejected))
+        self._remember(self._last_task, new_blocks,
+                       done_owner + [cur_idx] * len(suffix) + fut,
+                       self._init_state, self._init_offset)
+
+    def _worse(self, new_steps, new_report, old_steps, state, visible_objects) -> bool:
+        """True when a refine output re-verifies with more errors than its input."""
+        if new_report.ok:
+            return False
+        old = self._simulate(old_steps, initial_state=state, visible_objects=visible_objects,
+                             stop_on_error=False, apply_on_error=True)
+        new = self._simulate(new_steps, initial_state=state, visible_objects=visible_objects,
+                             stop_on_error=False, apply_on_error=True)
+        return _n_errors(new) > _n_errors(old)
 
     def _global_replan(
         self,
@@ -743,6 +878,7 @@ class SAGEPlanner(BasePlanner):
         obs:             str,
         visible_objects: list[str],
         t0:              float,
+        state:           SymbolicState | None = None,
     ) -> tuple[list[dict], PlanMetrics]:
         """Fallback path: same logic as HierarchicalFewShot.replan()."""
         completed_desc = ", ".join(
@@ -754,7 +890,14 @@ class SAGEPlanner(BasePlanner):
             f"({failed_step.get('action','')} {failed_step.get('object','')}): "
             f"{failure_reason}. Generate only the remaining steps."
         )
-        steps, metrics = self.generate_plan(remaining_task, obs, visible_objects)
+        steps, metrics = self.generate_plan(remaining_task, obs, visible_objects, state=state)
+        # The executor's plan is now completed + steps, still for `task`: keep
+        # `task` as the plan's task so the next replan(task) is local again,
+        # and start the new plan's belief after the completed steps.
+        if self._last_blocks is not None:
+            owners = self._current_owners()
+            self._remember(task, self._last_blocks, [0] * len(completed) + owners,
+                           self._init_state, len(completed))
         metrics.method = self.name
         metrics.notes  = "global_replan_fallback"
         # Adjust latency to include the wrapper time.
@@ -764,10 +907,22 @@ class SAGEPlanner(BasePlanner):
     # ─────────────────────────────────────────────────────────────
     # Episode logging (hook for carerobotagent / benchmark scripts)
     # ─────────────────────────────────────────────────────────────
-    def record_episode(self, task: str, plan: list[dict], success: bool = True) -> None:
-        """Append a successful trajectory to the live memory pool."""
-        if self.memory is not None:
-            self.memory.add_episode(task=task, plan=plan, success=success)
+    def record_episode(self, task: str, plan: list[dict], success: bool = True) -> bool:
+        """Append a successful trajectory to the live memory pool, only when it
+        verifies: `success` and the plan passes the symbolic gate (from the
+        plan's starting belief when `task` is the last planned task). A
+        trajectory that does not verify would teach the next plans its error.
+        Returns True when recorded."""
+        if self.memory is None or not success or not plan:
+            return False
+        init, offset = SymbolicState(), 0
+        if task == self._last_task and self._init_state is not None:
+            init, offset = self._init_state.copy(), self._init_offset
+        if not self._simulate(normalize_plan(plan)[offset:], initial_state=init).ok:
+            print(f"[SAGE] episode not recorded (plan does not verify): {task!r}")
+            return False
+        self.memory.add_episode(task=task, plan=plan, success=success)
+        return True
 
 
-__all__ = ["SAGEPlanner", "SubgoalBlock", "flatten"]
+__all__ = ["SAGEPlanner", "SubgoalBlock", "flatten", "belief_from_obs"]

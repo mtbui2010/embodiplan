@@ -3,6 +3,44 @@
 All interface changes of embodiplan are listed here. Versions follow SemVer.
 The action rules carry their own version, `embodiplan.ACTION_MODEL_VERSION`.
 
+## 0.2.2 (action model 1.0)
+
+SAGE suffix-repair fixes (SAGE_v2 report R1-R4, G1, G4). No signature removed; clients pinned
+`embodiplan>=0.2.1,<0.3` need no change.
+
+### Fixed
+- R1: `replan` located the failed sub-goal by walking the pre-dedupe block sizes with the
+  post-dedupe step count, so after `flatten` dropped a step it repaired the previous sub-goal.
+  Every plan step now carries the index of its block (book-kept through `flatten`, completed
+  steps and repairs; recomputed when the blocks are edited from outside, e.g. robot_agent's
+  `edit_block` loop).
+- R2: the repair state was re-simulated from an empty state, losing the belief (an already open
+  drawer, an object already in hand). The state at the failure is now: `replan(..., state=)`
+  when given, else the `Robot state:` line of `obs`, else the plan's starting belief replayed
+  through the completed steps.
+- R3: after one global fallback `_last_task` was the long "remaining" prompt, so every later
+  `replan(task)` was global too. The plan's task stays `task`; the fallback's plan is book-kept
+  after the completed steps.
+- R4: a local repair did not write its suffix back, so a second failure was located against
+  the stale decomposition. `last_blocks` now holds the repaired plan (done steps in their
+  blocks, the current block ends with the suffix, later blocks as they were flattened).
+
+### Changed
+- `generate_plan` starts the symbolic gate from the belief (`state=` or the `Robot state:`
+  line of `obs`) instead of an empty state, so a plan that starts with an object in hand or a
+  container open is no longer "refined" to fix violations that are not there.
+- A refine output is re-verified before use (`generate_plan` and `replan`): when it has more
+  violations than its input, the input is kept (`metrics.extra["refine_rejected"]`, per block
+  in `generate_plan`; `SubgoalBlock.refine_rejected`).
+- `record_episode` records only verified episodes: `success` and the plan passes the symbolic
+  gate (from the plan's starting belief for the last planned task). Returns True when recorded.
+- The 259 bundled reference-plan verdicts are unchanged (the action model is not touched).
+
+### Added
+- `embodiplan.sage.belief_from_obs(obs) -> SymbolicState | None` (parses robot_agent's
+  `WorldState.as_text()` and `SymbolicState.as_text()`).
+- Keyword-only `state=` on `SAGEPlanner.generate_plan` and `SAGEPlanner.replan`.
+
 ## 0.2.1 (action model 1.0)
 
 First release with the public action model. 0.2.0 was the version label before it existed, so
