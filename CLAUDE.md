@@ -1,67 +1,20 @@
 # embodiplan
 
-Pluggable LLM task planner for household robotics (AI2-THOR). Given a task description + visible objects, generates a step-by-step action plan.
+Pluggable LLM task planner library for household robotics (AI2-THOR); robot_agent's SAGE backend uses it.
+Docs index: [docs/README.md](docs/README.md). Usage, registry, file map: [docs/usage.md](docs/usage.md).
 
-## Usage
+## Rules
 
-```python
-import embodiplan
+1. Keep the public API (`__all__`) backwards compatible within 0.x; robot_agent pins `>=0.2.1,<0.3`.
+2. Bump SemVer, `ACTION_MODEL_VERSION` (for action rule changes) and [CHANGELOG.md](CHANGELOG.md) on interface changes.
+3. Keep tests offline: no LLM server, no network.
+4. Keep this file short: one-line rules and links; details go in `docs/*.md`.
 
-# Via registry (recommended)
-planner = embodiplan.get("ReAct", host="http://ollama.aistations.org", model="llama3.2")
-steps, metrics = planner.generate_plan(
-    task="Make a cup of coffee using the coffee machine",
-    obs="Kitchen scene loaded.",
-    visible_objects=["CoffeeMachine", "Mug", "CounterTop"],
-)
+## Test
 
-# Via shorthand
-planner = embodiplan.react(model="llama3.2", max_steps=15)
-```
+`PYTHONPATH=$PWD python -m pytest -q tests`
 
-## Registry keys
+## Docs
 
-| Key | Class | Strategy |
-|-----|-------|----------|
-| `"Direct"` | `DirectPlanner` | Single LLM call → JSON plan |
-| `"CoT"` | `CoTPlanner` | Reason first, then plan (2 calls) |
-| `"Few-Shot CoT"` | `FewShotPlanner` | Built-in examples anchor output |
-| `"Self-Refine"` | `SelfRefinePlanner` | Generate → critique → fix loop |
-| `"ReAct"` | `ReActPlanner` | One Thought+Action per call (N calls, most accurate) |
-| `"Hierarchical"` | `HierarchicalPlanner` | Sub-goals → action expansion |
-| `"LLM Router"` | `LLMRouterPlanner` | Local generate + external API verify |
-| `"Hierarchical Few-Shot"` | `HierarchicalFewShotPlanner` | Hierarchical + dynamic example retrieval |
-
-## Output
-
-```python
-steps: list[dict]      # [{"action": "MoveTo", "object": "Kitchen", ...}, ...]
-metrics: PlanMetrics   # .latency_s, .llm_calls, .input_tokens, .output_tokens, .parse_ok
-```
-
-Step fields: `action`, `object` (CamelCase AI2-THOR name), `target` (for Place), `reason`.
-
-Valid actions: `MoveTo Find Pick Place PutIn Open Close TurnOn TurnOff Wash Sit LieOn Serve Wait`
-
-## Backends
-
-Configured per-planner via constructor args:
-```python
-planner = embodiplan.get("ReAct",
-    host="http://ollama.aistations.org",   # Ollama URL
-    model="llama3.2",
-    provider="ollama",                      # "ollama" | "openai" | "gemini"
-    api_key="",                             # for openai/gemini
-)
-```
-
-## Key files
-
-| File | What it does |
-|------|-------------|
-| `embodiplan/base.py` | `BasePlanner` ABC, `PlanMetrics`, `LLMBackend` (handles Ollama/OpenAI/Gemini) |
-| `embodiplan/__init__.py` | `REGISTRY`, `get()`, shorthand factories |
-| `embodiplan/react.py` | ReAct implementation (most used) |
-| `embodiplan/hierarchical.py` | Hierarchical planner |
-| `apps/thor_knowledge.py` | Task/scene definitions for demo apps |
-| `apps/app.py` | Standalone Streamlit demo |
+- [docs/usage.md](docs/usage.md): usage, registry keys, output, backends, key files
+- [docs/rules.md](docs/rules.md): rules with reasons
