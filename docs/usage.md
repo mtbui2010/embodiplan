@@ -58,7 +58,7 @@ container rule and JSON examples whose actions the robot has, and open with the 
 description instead of "household robot". Both default to None: the prompts are then
 byte-identical to 0.2.3 (`tests/data/sage_prompts_0_2_3.txt`). The helpers are in
 `embodiplan.robot_prompt` (`system_prompts`, `step_schema`, `json_example`).
-robot_agent passes both from the robot's manifest (its docs/planner_guide.md).
+robot_agent passes both from the robot's manifest (its docs/direct_prompt.md).
 
 ## Backends
 
