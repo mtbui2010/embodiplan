@@ -472,9 +472,29 @@ def _approx_tokens(text: str) -> int:
     return max(1, len(text) // 4)
 
 
+def _text_fields(steps) -> list[dict]:
+    """Steps with ``action`` / ``object`` / ``target`` as text: a model may write a number
+    (``{"action": "Wait", "object": 5}``), which every ``.strip()`` downstream choked on.
+    Items that are not dicts are dropped; None stays absent."""
+    out = []
+    for s in steps if isinstance(steps, list) else []:
+        if not isinstance(s, dict):
+            continue
+        s = dict(s)
+        for k in ("action", "object", "target"):
+            if k in s and s[k] is not None and not isinstance(s[k], str):
+                s[k] = str(s[k])
+        out.append(s)
+    return out
+
+
 def parse_steps(raw: str) -> list[dict]:
-    """Robustly parse LLM output into a list of step dicts."""
-    raw = re.sub(r"```json|```", "", raw).strip()
+    """Robustly parse LLM output into a list of step dicts (fields as text, ``_text_fields``)."""
+    return _text_fields(_parse_steps(raw))
+
+
+def _parse_steps(raw) -> list:
+    raw = re.sub(r"```json|```", "", str(raw or "")).strip()
     try:
         data = json.loads(raw)
         if isinstance(data, dict):

@@ -64,6 +64,10 @@ class Capabilities:
     """
     hands:        int  = 1
     find_reaches: bool = True
+    # robot actions that release the held object (a manifest action whose effects
+    # include hand_empty(), e.g. Handover): their effect empties the hand. Default
+    # none, so every other caller is unchanged.
+    release_actions: frozenset = frozenset()
 
     @classmethod
     def from_any(cls, caps: "Capabilities | Mapping | None") -> "Capabilities":
@@ -77,7 +81,8 @@ class Capabilities:
         if isinstance(hands, (list, tuple, set)):
             hands = len(hands)
         return cls(hands=int(hands or 0),
-                   find_reaches=bool(caps.get("find_reaches", True)))
+                   find_reaches=bool(caps.get("find_reaches", True)),
+                   release_actions=frozenset(caps.get("release_actions") or ()))
 
 
 DEFAULT_CAPABILITIES = Capabilities()
@@ -208,6 +213,7 @@ def normalize_action(action: str) -> str:
     """Map legacy / dataset action names to canonical ROBOT_ACTIONS."""
     if not action:
         return ""
+    action = str(action)
     key = action.replace(" ", "").replace("_", "").lower()
     return _ALIAS_MAP.get(key, action)
 
@@ -247,7 +253,7 @@ def is_container(name: str, containers: Names = None) -> bool:
 
 
 def _target(step: dict) -> str:
-    return (step.get("object") or "").strip()
+    return str(step.get("object") or "").strip()
 
 
 def _reachable(o: str, world, caps: Capabilities) -> bool:
@@ -375,15 +381,20 @@ def errors(step: dict, world, **kw) -> list[Violation]:
 # ─────────────────────────────────────────────────────────────────────
 # apply: the effects
 # ─────────────────────────────────────────────────────────────────────
-def apply(step: dict, world, *, inplace: bool = False):
+def apply(step: dict, world, *, inplace: bool = False,
+          capabilities: "Capabilities | Mapping | None" = None):
     """The world after `step` succeeded. Returns a copy unless `inplace`.
 
     Only the symbolic fields are touched; robot extras (poses, timestamps)
-    stay with the caller.
+    stay with the caller. ``capabilities``: a robot action in its
+    ``release_actions`` (e.g. Handover) empties the hand.
     """
     w = world if inplace else (world.copy() if hasattr(world, "copy") else _copy.deepcopy(world))
     a = normalize_action(step.get("action", "") or "")
     o = _target(step)
+    if capabilities is not None and a in Capabilities.from_any(capabilities).release_actions:
+        w.holding = None
+        return w
 
     if a == "MoveTo":
         w.arrived = o
@@ -470,7 +481,7 @@ def simulate(
                 break
             if not apply_on_error:
                 continue  # skip side-effects of the rejected step
-        apply(step, state, inplace=True)
+        apply(step, state, inplace=True, capabilities=capabilities)
 
     return VerifierReport(
         ok=not violations,

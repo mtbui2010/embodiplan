@@ -148,6 +148,15 @@ def _ser_violations(report) -> list[dict]:
     return out
 
 
+class _BudgetStop(Exception):
+    """The caller's LLM-call budget refused the next call (``generate_plan(budget=)``): SAGE stops
+    between two calls and the budget's own exception (``cause``) reaches the caller."""
+
+    def __init__(self, cause: BaseException):
+        super().__init__(str(cause))
+        self.cause = cause
+
+
 # ─────────────────────────────────────────────────────────────────────
 # Internal data structures
 # ─────────────────────────────────────────────────────────────────────
@@ -413,6 +422,17 @@ class SAGEPlanner(BasePlanner):
         self._init_state:  SymbolicState | None      = None
         self._init_offset: int                       = 0
 
+    def _chat(self, messages, temperature: float = 0.2):
+        """One LLM call; with a caller budget (``generate_plan`` / ``replan`` ``budget=``) its
+        ``take()`` runs first, and a refusal stops the planner before the call (``_BudgetStop``)."""
+        budget = getattr(self, "_budget", None)
+        if budget is not None:
+            try:
+                budget.take(what="planner")
+            except Exception as e:                      # the caller's own exception type
+                raise _BudgetStop(e) from e
+        return super()._chat(messages, temperature=temperature)
+
     def _action_names(self) -> list:
         """The action names this planner plans with (the robot's, else the default vocabulary)."""
         from embodiplan.robot_prompt import action_names
@@ -508,7 +528,10 @@ class SAGEPlanner(BasePlanner):
             (examples_block + "\n\n" if examples_block else "")
             + f"=== NEW SUB-GOAL ===\n"
             f"Overall task: {task}\n"
-            f"Current sub-goal: {subgoal}\n\n"
+            f"Current sub-goal: {subgoal}\n"
+            + ("Plan only this sub-goal; the earlier sub-goals are done (see the state).\n"
+               if getattr(self, "_given_subgoals", False) else "")
+            + "\n"
             f"Robot symbolic state:\n  {state.as_text()}\n\n"
             f"Scene observation:\n{obs}\n\n"
             f"Visible objects: {obj_str}\n\n"
@@ -564,10 +587,25 @@ class SAGEPlanner(BasePlanner):
         visible_objects: list[str],
         *,
         state:           Any = None,
+        subgoals:        list[str] | None = None,
+        budget:          Any = None,
     ) -> tuple[list[dict], PlanMetrics]:
         """Plan `task`. The symbolic gate starts from `state` (a SymbolicState
         or a duck-typed world), else from the ``Robot state:`` line of `obs`,
-        else from an empty state."""
+        else from an empty state. ``subgoals``: the caller's sub-goals (one per
+        goal it understood): no decompose call, one expand per sub-goal, each
+        told the earlier ones are done. ``budget``: an object whose ``take()``
+        runs before every LLM call; its exception stops the planner between two
+        calls and is raised as is. Defaults keep the 0.2.5 behaviour."""
+        self._budget, self._given_subgoals = budget, bool(subgoals)
+        try:
+            return self._generate_plan(task, obs, visible_objects, state, subgoals)
+        except _BudgetStop as e:
+            raise e.cause from None
+        finally:
+            self._budget, self._given_subgoals = None, False
+
+    def _generate_plan(self, task, obs, visible_objects, state, given) -> tuple[list[dict], PlanMetrics]:
         t0          = time.perf_counter()
         llm_calls   = 0
         total_in    = 0
@@ -579,15 +617,20 @@ class SAGEPlanner(BasePlanner):
         retrieved, ex_block = self._retrieve_block(task)
         retrieved_tasks = [e.task for e in retrieved]
 
-        # 2. Decompose.
-        try:
-            subgoals, in_d, out_d = self._decompose(task, obs, visible_objects, ex_block)
-            llm_calls += 1
-            total_in  += in_d
-            total_out += out_d
-        except Exception as e:
-            print(f"[SAGE] Decompose error: {e} — falling back to single sub-goal")
-            subgoals = [task]
+        # 2. Decompose (not when the caller gave the sub-goals).
+        if given:
+            subgoals = [str(g) for g in given if str(g).strip()]
+        else:
+            try:
+                subgoals, in_d, out_d = self._decompose(task, obs, visible_objects, ex_block)
+                llm_calls += 1
+                total_in  += in_d
+                total_out += out_d
+            except _BudgetStop:
+                raise
+            except Exception as e:
+                print(f"[SAGE] Decompose error: {e} — falling back to single sub-goal")
+                subgoals = [task]
 
         if not subgoals:
             subgoals = [task]
@@ -615,6 +658,8 @@ class SAGEPlanner(BasePlanner):
                 llm_calls += 1
                 total_in  += in_e
                 total_out += out_e
+            except _BudgetStop:
+                raise
             except Exception as e:
                 print(f"[SAGE] Expand error on '{sg}': {e}")
                 steps = []
@@ -668,6 +713,8 @@ class SAGEPlanner(BasePlanner):
                                                 "subgoal": sg, "attempt": attempt + 1,
                                                 "steps": _ser_steps(steps)})
                             except Exception: pass
+                    except _BudgetStop:
+                        raise
                     except Exception as e:
                         print(f"[SAGE] Refine error on '{sg}': {e}")
                         break
@@ -740,11 +787,21 @@ class SAGEPlanner(BasePlanner):
         visible_objects: list[str],
         *,
         state:           Any = None,
+        budget:          Any = None,
     ) -> tuple[list[dict], PlanMetrics]:
         """Repair the sub-goal the failed step belongs to. The repair starts
         from the belief at the failure: `state` when given, else the
         ``Robot state:`` line of `obs`, else the plan's starting belief
-        replayed through `completed`."""
+        replayed through `completed`. ``budget``: as in :meth:`generate_plan`."""
+        self._budget = budget
+        try:
+            return self._replan(task, completed, failed_step, failure_reason, obs, visible_objects, state)
+        except _BudgetStop as e:
+            raise e.cause from None
+        finally:
+            self._budget = None
+
+    def _replan(self, task, completed, failed_step, failure_reason, obs, visible_objects, state):
         t0 = time.perf_counter()
         completed = normalize_plan(completed)
 
@@ -795,6 +852,8 @@ class SAGEPlanner(BasePlanner):
                 temperature=0.1,
             )
             suffix = normalize_plan(parse_steps(raw))
+        except _BudgetStop:
+            raise
         except Exception as e:
             print(f"[SAGE] Local repair failed: {e}")
             suffix, in_tok, out_tok = [], 0, 0
@@ -826,6 +885,8 @@ class SAGEPlanner(BasePlanner):
                             refine_rejected = True
                         else:
                             suffix = new_suffix
+                except _BudgetStop:
+                    raise
                 except Exception as e:
                     print(f"[SAGE] Repair-refine error: {e}")
 
@@ -967,7 +1028,7 @@ class SAGEPlanner(BasePlanner):
             f"({failed_step.get('action','')} {failed_step.get('object','')}): "
             f"{failure_reason}. Generate only the remaining steps."
         )
-        steps, metrics = self.generate_plan(remaining_task, obs, visible_objects, state=state)
+        steps, metrics = self._generate_plan(remaining_task, obs, visible_objects, state, None)
         # The executor's plan is now completed + steps, still for `task`: keep
         # `task` as the plan's task so the next replan(task) is local again,
         # and start the new plan's belief after the completed steps.
