@@ -111,3 +111,18 @@ def test_parse_steps_numbers():
     steps = parse_steps('{"steps": [{"action": "Wait", "object": 5}, {"action": "Say", "object": 1.5}, 7]}')
     assert steps == [{"action": "Wait", "object": "5"}, {"action": "Say", "object": "1.5"}]
     assert parse_steps('[{"action": "MoveTo", "object": null}]') == [{"action": "MoveTo", "object": None}]
+
+
+def test_fixed_subgoal_keeps_the_callers_steps_and_costs_no_call():
+    own = S(("MoveTo", "sofa"), ("Say", "dinner is ready"))
+    be = Backend(PLAN)
+    p = planner(be)
+    steps, m = p.generate_plan("tidy up", "Robot state: arrived=- holding=-", [],
+                               subgoals=[(A, own), B, {"name": "say hi", "steps": S(("Say", "hi"))}])
+    assert m.llm_calls == 1 and len(be.prompts) == 1          # only B was expanded
+    assert steps[:2] == own and steps[-1] == {"action": "Say", "object": "hi"}
+    assert [b.fixed for b in p.last_blocks] == [True, False, True]
+    assert p.edit_block(p.last_blocks[0], "anything", task="tidy up") == own      # no LLM edit of a fixed block
+    assert len(be.prompts) == 1
+    assert SAGEPlanner.fixed_subgoals is True
+

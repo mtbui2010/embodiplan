@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name        = "embodiplan"
-version     = "0.2.6"
+version     = "0.2.7"
 description = "Pluggable LLM task planners for embodied household robots, with a zero-token symbolic verifier and the SAGE planner"
 readme      = "README.md"
 requires-python = ">=3.10"

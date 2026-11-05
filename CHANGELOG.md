@@ -3,6 +3,14 @@
 All interface changes of embodiplan are listed here. Versions follow SemVer.
 The action rules carry their own version, `embodiplan.ACTION_MODEL_VERSION`.
 
+## 0.2.7 (action model 1.0)
+
+### Added
+- `SAGEPlanner.generate_plan(subgoals=[...])`: a sub-goal may carry its own steps, `(text, steps)` or
+  `{"name": text, "steps": steps}`. That block is fixed: no expand call, no refine, and `edit_block`
+  returns its steps unchanged (`SubgoalBlock.fixed`). Strings behave as before. `SAGEPlanner.fixed_subgoals`
+  tells a caller the planner has this.
+
 ## 0.2.5 (action model 1.0)
 
 SAGE's decompose answer is parsed robustly. No interface change.

@@ -167,6 +167,7 @@ class _SubgoalBlock:
     steps:   list[dict] = field(default_factory=list)
     refined: bool       = False   # was at least one refine pass triggered?
     refine_rejected: bool = False # a refine output failed re-verification (prior steps kept)
+    fixed:   bool       = False   # the caller's own steps (no expand, no refine, no LLM edit)
 
 
 # keys a model wraps sub-goals in: never a sub-goal themselves
@@ -235,6 +236,16 @@ def _parse_subgoals(raw: str, actions=ROBOT_ACTIONS) -> list[str]:
 
 # Public name of the block type (robot_agent drives sub-goal edits on it).
 SubgoalBlock = _SubgoalBlock
+
+
+def _given_subgoal(item) -> tuple[str, list[dict] | None]:
+    """(text, own steps or None) of one caller-given sub-goal: a string, ``(text, steps)`` or
+    ``{"name": text, "steps": steps}``."""
+    if isinstance(item, dict) and isinstance(item.get("steps"), list) and item.get("name") is not None:
+        return str(item["name"]), [dict(x) for x in item["steps"]]
+    if isinstance(item, tuple) and len(item) == 2 and isinstance(item[1], list):
+        return str(item[0]), [dict(x) for x in item[1]]
+    return str(item), None
 
 
 def flatten(blocks: list[_SubgoalBlock]) -> list[dict]:
@@ -342,6 +353,7 @@ def _n_errors(report) -> int:
 # ─────────────────────────────────────────────────────────────────────
 class SAGEPlanner(BasePlanner):
     name        = "SAGE"
+    fixed_subgoals = True      # generate_plan(subgoals=[(text, steps)]) keeps the caller's own steps (0.2.7)
     description = (
         "Symbolic Action-Gating and Editing planner: hierarchical "
         "decomposition + symbolic precondition verifier + hybrid memory "
@@ -473,6 +485,8 @@ class SAGEPlanner(BasePlanner):
         the start of the block; `examples_block` defaults to the memory
         examples for `task`. Returns the new steps (the block is not changed;
         [] when the LLM output did not parse). Raises on LLM errors."""
+        if getattr(block, "fixed", False):
+            return list(block.steps)              # the caller's own steps: the LLM does not rewrite them
         if examples_block is None:
             examples_block = self._retrieve_block(task)[1]
         steps, _in, _out = self._refine(block.name, task, list(block.steps), feedback,
@@ -617,9 +631,18 @@ class SAGEPlanner(BasePlanner):
         retrieved, ex_block = self._retrieve_block(task)
         retrieved_tasks = [e.task for e in retrieved]
 
-        # 2. Decompose (not when the caller gave the sub-goals).
+        # 2. Decompose (not when the caller gave the sub-goals). A given sub-goal may carry its own steps
+        #    (``(text, steps)`` or ``{"name", "steps"}``): a fixed block, written by the caller, never by the LLM.
+        fixed_steps: dict[int, list[dict]] = {}
         if given:
-            subgoals = [str(g) for g in given if str(g).strip()]
+            subgoals = []
+            for g in given:
+                name, own = _given_subgoal(g)
+                if not name.strip():
+                    continue
+                if own is not None:
+                    fixed_steps[len(subgoals)] = own
+                subgoals.append(name)
         else:
             try:
                 subgoals, in_d, out_d = self._decompose(task, obs, visible_objects, ex_block)
@@ -651,18 +674,22 @@ class SAGEPlanner(BasePlanner):
                                     "total": len(subgoals), "subgoal": sg})
                 except Exception: pass
             block = _SubgoalBlock(name=sg)
-            try:
-                steps, in_e, out_e = self._expand(
-                    sg, task, state, obs, visible_objects, ex_block
-                )
-                llm_calls += 1
-                total_in  += in_e
-                total_out += out_e
-            except _BudgetStop:
-                raise
-            except Exception as e:
-                print(f"[SAGE] Expand error on '{sg}': {e}")
-                steps = []
+            if _gi in fixed_steps:
+                block.fixed = True
+                steps = [dict(x) for x in fixed_steps[_gi]]
+            else:
+                try:
+                    steps, in_e, out_e = self._expand(
+                        sg, task, state, obs, visible_objects, ex_block
+                    )
+                    llm_calls += 1
+                    total_in  += in_e
+                    total_out += out_e
+                except _BudgetStop:
+                    raise
+                except Exception as e:
+                    print(f"[SAGE] Expand error on '{sg}': {e}")
+                    steps = []
 
             # Stream the expanded steps for this sub-goal (post-expansion, so a
             # UI can show the concrete plan under each sub-goal).
@@ -672,7 +699,7 @@ class SAGEPlanner(BasePlanner):
                 except Exception: pass
 
             # 4. Symbolic verification + (≤max_refines) refinements.
-            if self.enable_verifier and steps:
+            if self.enable_verifier and steps and not block.fixed:
                 attempt = 0
                 report = self._simulate(steps, initial_state=state,
                                         visible_objects=visible_objects)
@@ -992,7 +1019,7 @@ class SAGEPlanner(BasePlanner):
             else:
                 steps = [s for s, o in zip(future, fut) if o == j]
             new_blocks.append(_SubgoalBlock(name=b.name, steps=steps, refined=b.refined,
-                                            refine_rejected=b.refine_rejected))
+                                            refine_rejected=b.refine_rejected, fixed=b.fixed))
         self._remember(self._last_task, new_blocks,
                        done_owner + [cur_idx] * len(suffix) + fut,
                        self._init_state, self._init_offset)
