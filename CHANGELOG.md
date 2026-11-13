@@ -3,6 +3,12 @@
 All interface changes of embodiplan are listed here. Versions follow SemVer.
 The action rules carry their own version, `embodiplan.ACTION_MODEL_VERSION`.
 
+## Unreleased
+
+### Fixed
+- `SAGEPlanner._simulate` passes the planner's action vocabulary (`_action_names()`: the robot's own `actions`) to `simulate`; before, the gate
+  used the household list and flagged a robot's Handover / Say / Dock as `unknown_action`. Without `actions` the vocabulary is unchanged.
+
 ## 0.2.7 (action model 1.0)
 
 ### Added

@@ -456,7 +456,9 @@ class SAGEPlanner(BasePlanner):
         return prompts.get(key) or _DEFAULT_SYSTEM[key]
 
     def _simulate(self, plan, **kw):
-        """action_model.simulate under this planner's capabilities."""
+        """action_model.simulate under this planner's capabilities and its action vocabulary (the robot's
+        own actions: a Handover / Say / Dock the robot declares is no ``unknown_action``)."""
+        kw.setdefault("actions", self._action_names())
         return simulate(plan, capabilities=self.capabilities, **kw)
 
     # ── public editing surface (used by robot_agent's assist loop) ─
