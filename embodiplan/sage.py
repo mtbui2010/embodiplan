@@ -304,16 +304,21 @@ _flatten = flatten  # pre-0.2 private name, still used by older robot_agent
 
 
 def _step_key(step: dict) -> tuple:
-    """(action, object head) of a step, case and the ``@place`` suffix of a grounded name aside."""
+    """(action, object head) of a step: case, the ``@place`` suffix of a grounded name and the word separators
+    ('_', '-', spaces) aside, so a plan's ``a_b`` and an executed ``a b`` are one object."""
     from embodiplan.action_model import normalize_action
-    return (normalize_action(step.get("action", "") or ""),
-            str(step.get("object") or "").split("@")[0].strip().lower())
+    head = str(step.get("object") or "").split("@")[0].lower()
+    return (normalize_action(step.get("action", "") or ""), re.sub(r"[\s_\-]+", " ", head).strip())
 
 
-def _next_match(flat: list[dict], start: int, step: dict) -> int | None:
-    """Index of the first step of `flat` from `start` on that is `step` by :func:`_step_key`, else None."""
-    key = _step_key(step)
-    return next((j for j in range(start, len(flat)) if _step_key(flat[j]) == key), None)
+def _common_len(a: list, b: list) -> int:
+    """Length of the longest common subsequence of two lists (one row of the usual table)."""
+    row = [0] * (len(b) + 1)
+    for x in a:
+        diag = 0
+        for j, y in enumerate(b, 1):
+            diag, row[j] = row[j], (diag + 1 if x == y else max(row[j], row[j - 1]))
+    return row[-1]
 
 
 def _blocks_sig(blocks) -> tuple:
@@ -1018,18 +1023,22 @@ class SAGEPlanner(BasePlanner):
     def _aligned_block_index(self, completed: list[dict], failed_step: dict) -> int | None:
         """``replan_block_fix``: the block of the failed step, found on the plan's own steps, not by count.
 
-        The completed steps are lined up with the plan in order, by (action, object head); a completed step the plan
-        does not hold (one the caller added: a search, a look) and a plan step that was not run (one the caller dropped)
-        move nothing. The failed step is the first plan step after the lined-up ones with its (action, object). None:
-        it is no step of the plan (a pseudo-step, or all steps are done): the caller replans globally; never a guess."""
+        Steps compare by (action, object head) (:func:`_step_key`). Every plan step with the failed step's key is a
+        candidate; the run so far is lined up with the plan before it (longest common subsequence), and the candidate
+        that needs the fewest steps the caller added (a search, a look) plus plan steps it dropped wins, the earliest on
+        a tie. A retry (the failed step was run before, e.g. a second Find after a failed Pick) may line up with the
+        candidate itself, so it stays in the block of the step it repeats; an added step that equals a later plan step
+        does not pull the failed step forward. None: the failed key is no step of the plan (a pseudo-step such as a goal
+        check after all steps are done): the caller replans globally; never a guess."""
         flat, owners = _flatten_owned(self._last_blocks or [])
-        k = 0
-        for s in completed[self._init_offset:]:
-            j = _next_match(flat, k, s)
-            if j is not None:
-                k = j + 1
-        j = _next_match(flat, k, failed_step)
-        return None if j is None else owners[j]
+        keys, fk = [_step_key(s) for s in flat], _step_key(failed_step)
+        done = [_step_key(s) for s in completed[self._init_offset:]]
+        best = None
+        for p in (j for j, k in enumerate(keys) if k == fk):
+            cost = min(len(done) + e - 2 * _common_len(done, keys[:e]) for e in (p, p + 1))
+            if best is None or cost < best[0]:
+                best = (cost, p)
+        return None if best is None else owners[best[1]]
 
     def _state_at_failure(self, completed, visible_objects, state=None, obs="") -> SymbolicState:
         if state is None:

@@ -139,3 +139,92 @@ def test_new_subgoals_on_replan_are_planned_afresh_not_repaired_locally():
     steps, m = p.replan("t", flat[:1], flat[1], "goal changed", "", [], subgoals=new)
     assert m.notes == "global_replan_fallback" and steps == S(("Find", "Vase"), ("Pick", "Vase"))
     assert p.repaired() is None
+
+
+# ── the run so far is lined up as a whole: name forms, added searches, retries (made-up worlds) ──
+
+KETTLE = ["fetch the kettle", "bring kettle to shelf", "fetch the lamp"]
+KETTLE_STEPS = {
+    KETTLE[0]: S(("MoveTo", "Pantry"), ("Find", "Brass_Kettle"), ("Pick", "Brass_Kettle")),
+    KETTLE[1]: S(("MoveTo", "Shelf-Top"), ("Place", "Shelf-Top")),
+    KETTLE[2]: S(("MoveTo", "Cellar"), ("Find", "Lamp"), ("Pick", "Lamp")),
+}
+TWICE = ["fetch the urn", "bring urn to bench", "fetch the urn again"]   # the same step in two blocks
+TWICE_STEPS = {
+    TWICE[0]: S(("MoveTo", "Attic"), ("Find", "Urn"), ("Pick", "Urn")),
+    TWICE[1]: S(("MoveTo", "Bench"), ("Place", "Bench")),
+    TWICE[2]: S(("MoveTo", "Cellar"), ("Find", "Urn"), ("Pick", "Urn")),
+}
+
+
+def one_replan(p, done, failed):
+    """(repaired sub-goal, notes, LLM calls of this replan)."""
+    n = len(p.prompts)
+    _s, m = p.replan("t", done, failed, "gone", "", [])
+    return p.repaired(), m.notes, len(p.prompts) - n
+
+
+def test_name_forms_with_underscore_dash_or_space_are_one_object():
+    p, flat = planned(subgoals=KETTLE, expand=KETTLE_STEPS, replan_block_fix=True, repairs=[S(("Find", "Brass_Kettle"))])
+    assert one_replan(p, flat[:1], {"action": "Find", "object": "brass kettle"})[:2] == (KETTLE[0], "local_repair")
+    p, flat = planned(subgoals=KETTLE, expand=KETTLE_STEPS, replan_block_fix=True, repairs=[S(("Place", "Shelf-Top"))])
+    done = flat[:3] + [{"action": "MoveTo", "object": "shelf top"}]
+    assert one_replan(p, done, {"action": "Place", "object": "shelf_top@hall"})[0] == KETTLE[1]
+
+
+def test_added_search_equal_to_a_later_block_start_does_not_pull_the_failed_step_forward():
+    p, flat = planned(replan_block_fix=True, repairs=[S(("Find", "Urn"))])
+    done = flat[:1] + S(("MoveTo", "Bench"))           # a search the caller added; block 1 begins with it
+    assert one_replan(p, done, flat[1])[0] == SG[0]
+
+
+def test_retry_of_a_step_already_run_stays_in_its_block():
+    p, flat = planned(replan_block_fix=True, repairs=[S(("Find", "Urn"))])
+    assert one_replan(p, flat[:2], flat[1])[0] == SG[0]          # [MoveTo, Find Urn] done, Find Urn again
+
+
+def test_same_step_in_two_blocks_retry_stays_early_progress_goes_late():
+    p, flat = planned(subgoals=TWICE, expand=TWICE_STEPS, replan_block_fix=True, repairs=[S(("Pick", "Urn"))])
+    assert one_replan(p, flat[:2], flat[1])[0] == TWICE[0]
+    p, flat = planned(subgoals=TWICE, expand=TWICE_STEPS, replan_block_fix=True, repairs=[S(("Pick", "Urn"))])
+    assert one_replan(p, flat[:6], flat[6])[0] == TWICE[2]
+    p, flat = planned(subgoals=TWICE, expand=TWICE_STEPS, replan_block_fix=True, repairs=[S(("Pick", "Urn"))])
+    done = flat[:1] + S(("MoveTo", "Cellar"))          # a search to the later block's place, then the first Find
+    assert one_replan(p, done, flat[1])[0] == TWICE[0]
+
+
+def test_a_dropped_first_step_still_lets_its_twin_in_a_later_block_be_found():
+    sg = ["fetch the urn", "bring urn to bench", "fetch the lamp"]
+    ex = {sg[0]: S(("MoveTo", "Attic"), ("Find", "Urn"), ("Pick", "Urn")), sg[1]: S(("MoveTo", "Bench"), ("Place", "Bench")),
+          sg[2]: S(("MoveTo", "Attic"), ("Find", "Lamp"), ("Pick", "Lamp"))}
+    p, flat = planned(subgoals=sg, expand=ex, replan_block_fix=True, repairs=[S(("MoveTo", "Attic"))])
+    assert one_replan(p, flat[1:5], flat[5])[0] == sg[2]          # the robot started in the attic
+
+
+def test_separator_only_name_is_empty_and_lines_up_with_nothing():
+    p, flat = planned(replan_block_fix=True)
+    assert one_replan(p, flat[:1], {"action": "Find", "object": "_-"})[1] == "global_replan_fallback"
+
+
+def test_regression_a_correct_local_repair_is_not_sent_to_a_global_replan():
+    # the three shapes that sent a repair of block 0 to the global replan: a name form, an added search, a retry
+    cases = [(KETTLE, KETTLE_STEPS, lambda f: f[:1], {"action": "Find", "object": "brass kettle"}),
+             (SG, EXPAND, lambda f: f[:1] + S(("MoveTo", "Bench")), {"action": "Find", "object": "Urn"}),
+             (SG, EXPAND, lambda f: f[:2], {"action": "Find", "object": "urn@attic"})]
+    for sg, ex, done, failed in cases:
+        p, flat = planned(subgoals=sg, expand=ex, replan_block_fix=True, repairs=[S(("Find", "X"))])
+        assert one_replan(p, done(flat), failed) == (sg[0], "local_repair", 1)
+
+
+def test_replan_block_fix_off_is_the_count_rule_on_every_synthetic_history():
+    from embodiplan.sage import _flatten_owned
+    worlds = [(SG, EXPAND), (KETTLE, KETTLE_STEPS), (TWICE, TWICE_STEPS)]
+    for sg, ex in worlds:
+        p0, flat = planned(subgoals=sg, expand=ex)
+        owners = _flatten_owned(p0.last_blocks)[1]
+        histories = [flat[:n] for n in range(len(flat) + 1)] + [flat[:1] + S(("MoveTo", "Nowhere")), flat[1:3]]
+        for done in histories:
+            for failed in (flat[min(len(done), len(flat) - 1)], flat[0], {"action": "Find", "object": "x y"}):
+                p, _f = planned(subgoals=sg, expand=ex, repairs=[S(("Find", "X"))])
+                want = sg[owners[len(done)] if len(done) < len(owners) else owners[-1]]
+                assert one_replan(p, done, failed) == (want, "local_repair", 1)

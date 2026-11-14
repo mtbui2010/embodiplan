@@ -89,6 +89,9 @@ planner = embodiplan.get("ReAct",
 ## SAGE `replan_block_fix` (default False)
 
 `SAGEPlanner(replan_block_fix=True)`: `replan` finds the failed block by lining the completed steps up with the plan's own steps
-((action, object head)), so steps the caller added (a search, a look) or dropped do not move the index. A failed step that is no step of the plan
-(a pseudo-step such as a goal change, or all steps done) gets the global replan, never a repair of the last block. `replan(subgoals=[...])` plans the
+((action, object head); case, `@place` and the separators `_`, `-`, space aside). Every plan step with the failed step's key is a candidate;
+the one where the run so far needs the fewest added (a search, a look) plus dropped steps wins (earliest on a tie). A retry of a step already
+run stays in that step's block; an added search equal to a later plan step does not pull the failed step forward. A failed step whose key is
+in no step of the plan (a pseudo-step such as a goal change, or a check after all steps) gets the global replan, never a repair of the last block.
+Limit: the same (action, object) in two blocks with an ambiguous history is resolved by that count, not by meaning. `replan(subgoals=[...])` plans the
 rest afresh for new sub-goals. Off: the block is chosen by the count of completed steps, as before.
