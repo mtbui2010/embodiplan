@@ -5,6 +5,13 @@ The action rules carry their own version, `embodiplan.ACTION_MODEL_VERSION`.
 
 ## Unreleased
 
+### Added
+- 2026-11-15 `SAGEPlanner(replan_block_fix=False)`: with True, `replan` finds the failed block by lining the completed steps up with the plan's own
+  steps ((action, object head); steps the caller added or dropped move nothing) and takes the first plan step after them that is the failed step.
+  A failed step that is no step of the plan, or a plan with all steps done, gets the global replan instead of a repair of the last block (before,
+  the count of completed steps picked the block, so added steps pushed the repair into a later block). `replan(subgoals=[...])`: the rest of the
+  plan is planned afresh for the caller's new sub-goals (global replan). Default False and no `subgoals`: unchanged.
+
 ### Fixed
 - `SAGEPlanner._simulate` passes the planner's action vocabulary (`_action_names()`: the robot's own `actions`) to `simulate`; before, the gate
   used the household list and flagged a robot's Handover / Say / Dock as `unknown_action`. Without `actions` the vocabulary is unchanged.

@@ -85,3 +85,10 @@ planner = embodiplan.get("ReAct",
 | `embodiplan/action_model.py` | The action rules (`ACTION_MODEL_VERSION`) shared with robot_agent |
 | `apps/thor_knowledge.py` | Task/scene definitions for demo apps |
 | `apps/app.py` | Standalone Streamlit demo |
+
+## SAGE `replan_block_fix` (default False)
+
+`SAGEPlanner(replan_block_fix=True)`: `replan` finds the failed block by lining the completed steps up with the plan's own steps
+((action, object head)), so steps the caller added (a search, a look) or dropped do not move the index. A failed step that is no step of the plan
+(a pseudo-step such as a goal change, or all steps done) gets the global replan, never a repair of the last block. `replan(subgoals=[...])` plans the
+rest afresh for new sub-goals. Off: the block is chosen by the count of completed steps, as before.

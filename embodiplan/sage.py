@@ -303,6 +303,19 @@ def _flatten_owned(blocks: list[_SubgoalBlock]) -> tuple[list[dict], list[int]]:
 _flatten = flatten  # pre-0.2 private name, still used by older robot_agent
 
 
+def _step_key(step: dict) -> tuple:
+    """(action, object head) of a step, case and the ``@place`` suffix of a grounded name aside."""
+    from embodiplan.action_model import normalize_action
+    return (normalize_action(step.get("action", "") or ""),
+            str(step.get("object") or "").split("@")[0].strip().lower())
+
+
+def _next_match(flat: list[dict], start: int, step: dict) -> int | None:
+    """Index of the first step of `flat` from `start` on that is `step` by :func:`_step_key`, else None."""
+    key = _step_key(step)
+    return next((j for j in range(start, len(flat)) if _step_key(flat[j]) == key), None)
+
+
 def _blocks_sig(blocks) -> tuple:
     """What the blocks plan, to see that someone (robot_agent's edit) changed them."""
     return tuple(tuple((s.get("action"), s.get("object")) for s in b.steps) for b in blocks or ())
@@ -381,6 +394,7 @@ class SAGEPlanner(BasePlanner):
         leave_one_out:   bool = False,
         actions:         list[str] | None = None,
         robot_description: str | None = None,
+        replan_block_fix: bool = False,
         **kwargs,
     ):
         super().__init__(host=host, model=model, provider=provider, api_key=api_key)
@@ -389,6 +403,10 @@ class SAGEPlanner(BasePlanner):
         self.enable_verifier      = enable_verifier
         self.enable_memory        = enable_memory
         self.enable_local_repair  = enable_local_repair
+        # True: the failed block is found by lining the completed steps up with the plan's
+        # own steps (the steps the caller added or dropped do not move the index), and a
+        # failed step that is no step of the plan gets the global replan. False: by count.
+        self.replan_block_fix     = bool(replan_block_fix)
         # If True, a refine call returning [] (parse failure) is a no-op:
         # keep prior steps and stop further refines. Default False preserves
         # legacy behaviour (overwrite even with empty).
@@ -817,20 +835,23 @@ class SAGEPlanner(BasePlanner):
         *,
         state:           Any = None,
         budget:          Any = None,
+        subgoals:        list | None = None,
     ) -> tuple[list[dict], PlanMetrics]:
         """Repair the sub-goal the failed step belongs to. The repair starts
         from the belief at the failure: `state` when given, else the
         ``Robot state:`` line of `obs`, else the plan's starting belief
-        replayed through `completed`. ``budget``: as in :meth:`generate_plan`."""
+        replayed through `completed`. ``budget``: as in :meth:`generate_plan`.
+        ``subgoals`` (the caller's new sub-goals, e.g. after the goals changed): the rest
+        of the plan is planned afresh for them (global replan, no local repair)."""
         self._budget = budget
         try:
-            return self._replan(task, completed, failed_step, failure_reason, obs, visible_objects, state)
+            return self._replan(task, completed, failed_step, failure_reason, obs, visible_objects, state, subgoals)
         except _BudgetStop as e:
             raise e.cause from None
         finally:
             self._budget = None
 
-    def _replan(self, task, completed, failed_step, failure_reason, obs, visible_objects, state):
+    def _replan(self, task, completed, failed_step, failure_reason, obs, visible_objects, state, subgoals=None):
         t0 = time.perf_counter()
         completed = normalize_plan(completed)
 
@@ -840,11 +861,13 @@ class SAGEPlanner(BasePlanner):
         # The symbolic state at the moment of failure (see the docstring);
         # cheaper and more reliable than the LLM reading the obs as "the world".
         state_at_failure = self._state_at_failure(completed, visible_objects, state, obs)
-        if not self.enable_local_repair or not self._last_blocks or self._last_task != task:
+        cur_idx = None
+        if self.enable_local_repair and self._last_blocks and self._last_task == task and not subgoals:
+            cur_idx = (self._aligned_block_index(completed, failed_step) if self.replan_block_fix
+                       else self._failed_block_index(len(completed)))
+        if cur_idx is None:
             return self._global_replan(task, completed, failed_step, failure_reason, obs,
-                                       visible_objects, t0, state_at_failure)
-
-        cur_idx = self._failed_block_index(len(completed))
+                                       visible_objects, t0, state_at_failure, subgoals)
         current_sg = self._last_blocks[cur_idx].name
         future_blocks = self._last_blocks[cur_idx + 1:]
         remaining_after, future_owners = _flatten_owned(future_blocks)
@@ -990,6 +1013,22 @@ class SAGEPlanner(BasePlanner):
             return owners[n_done]
         return owners[-1] if owners else len(self._last_blocks) - 1
 
+    def _aligned_block_index(self, completed: list[dict], failed_step: dict) -> int | None:
+        """``replan_block_fix``: the block of the failed step, found on the plan's own steps, not by count.
+
+        The completed steps are lined up with the plan in order, by (action, object head); a completed step the plan
+        does not hold (one the caller added: a search, a look) and a plan step that was not run (one the caller dropped)
+        move nothing. The failed step is the first plan step after the lined-up ones with its (action, object). None:
+        it is no step of the plan (a pseudo-step, or all steps are done): the caller replans globally; never a guess."""
+        flat, owners = _flatten_owned(self._last_blocks or [])
+        k = 0
+        for s in completed[self._init_offset:]:
+            j = _next_match(flat, k, s)
+            if j is not None:
+                k = j + 1
+        j = _next_match(flat, k, failed_step)
+        return None if j is None else owners[j]
+
     def _state_at_failure(self, completed, visible_objects, state=None, obs="") -> SymbolicState:
         if state is None:
             state = belief_from_obs(obs)
@@ -1046,6 +1085,7 @@ class SAGEPlanner(BasePlanner):
         visible_objects: list[str],
         t0:              float,
         state:           SymbolicState | None = None,
+        subgoals:        list | None = None,
     ) -> tuple[list[dict], PlanMetrics]:
         """Fallback path: same logic as HierarchicalFewShot.replan()."""
         completed_desc = ", ".join(
@@ -1057,7 +1097,7 @@ class SAGEPlanner(BasePlanner):
             f"({failed_step.get('action','')} {failed_step.get('object','')}): "
             f"{failure_reason}. Generate only the remaining steps."
         )
-        steps, metrics = self._generate_plan(remaining_task, obs, visible_objects, state, None)
+        steps, metrics = self._generate_plan(remaining_task, obs, visible_objects, state, subgoals or None)
         # The executor's plan is now completed + steps, still for `task`: keep
         # `task` as the plan's task so the next replan(task) is local again,
         # and start the new plan's belief after the completed steps.
