@@ -841,8 +841,9 @@ class SAGEPlanner(BasePlanner):
         from the belief at the failure: `state` when given, else the
         ``Robot state:`` line of `obs`, else the plan's starting belief
         replayed through `completed`. ``budget``: as in :meth:`generate_plan`.
-        ``subgoals`` (the caller's new sub-goals, e.g. after the goals changed): the rest
-        of the plan is planned afresh for them (global replan, no local repair)."""
+        ``subgoals`` (the caller's new sub-goals, e.g. after the goals changed; only with
+        ``replan_block_fix`` on, else ignored as in the base): the rest of the plan is planned
+        afresh for them (global replan, no local repair)."""
         self._budget = budget
         try:
             return self._replan(task, completed, failed_step, failure_reason, obs, visible_objects, state, subgoals)
@@ -854,6 +855,7 @@ class SAGEPlanner(BasePlanner):
     def _replan(self, task, completed, failed_step, failure_reason, obs, visible_objects, state, subgoals=None):
         t0 = time.perf_counter()
         completed = normalize_plan(completed)
+        subgoals = subgoals if self.replan_block_fix else None        # the caller's sub-goals path is part of the key: off = the base
 
         # If local repair is disabled or we have no prior decomposition,
         # fall back to a fresh hierarchical plan over the remainder

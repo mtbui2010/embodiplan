@@ -10,7 +10,7 @@ The action rules carry their own version, `embodiplan.ACTION_MODEL_VERSION`.
   steps ((action, object head); steps the caller added or dropped move nothing) and takes the first plan step after them that is the failed step.
   A failed step that is no step of the plan, or a plan with all steps done, gets the global replan instead of a repair of the last block (before,
   the count of completed steps picked the block, so added steps pushed the repair into a later block). `replan(subgoals=[...])`: the rest of the
-  plan is planned afresh for the caller's new sub-goals (global replan). Default False and no `subgoals`: unchanged.
+  plan is planned afresh for the caller's new sub-goals (global replan). `subgoals` is honoured only with `replan_block_fix` True (False: ignored, as in the base). Default False: unchanged.
 
 ### Fixed
 - `SAGEPlanner._simulate` passes the planner's action vocabulary (`_action_names()`: the robot's own `actions`) to `simulate`; before, the gate

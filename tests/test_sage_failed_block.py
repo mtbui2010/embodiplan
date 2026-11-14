@@ -125,8 +125,15 @@ def test_owners_stale_after_an_outside_edit_still_find_the_block():
     assert p.repaired() == SG[2]
 
 
+def test_subgoals_are_ignored_with_the_key_off_as_in_the_base():
+    p, flat = planned(repairs=[S(("Find", "Lamp"))])
+    p.expand_by["fetch the vase"] = S(("Find", "Vase"), ("Pick", "Vase"))
+    steps, m = p.replan("t", flat[:1], flat[1], "goal changed", "", [], subgoals=["fetch the vase"])
+    assert m.notes != "global_replan_fallback" and "Vase" not in str(steps)
+
+
 def test_new_subgoals_on_replan_are_planned_afresh_not_repaired_locally():
-    p, flat = planned()                                   # off: subgoals= still means a global replan
+    p, flat = planned(replan_block_fix=True)
     new = ["fetch the vase"]
     p.expand_by["fetch the vase"] = S(("Find", "Vase"), ("Pick", "Vase"))
     steps, m = p.replan("t", flat[:1], flat[1], "goal changed", "", [], subgoals=new)
