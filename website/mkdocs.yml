@@ -1,0 +1,92 @@
+site_name: embodiplan
+site_description: A pluggable library that turns a household task into a checked, step-by-step robot plan with an LLM.
+site_url: https://mtbui2010.github.io/embodiplan/
+repo_url: https://github.com/mtbui2010/embodiplan
+repo_name: mtbui2010/embodiplan
+edit_uri: edit/main/website/docs/
+copyright: embodiplan is MIT.
+
+theme:
+  name: material
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - navigation.indexes
+    - content.code.copy
+    - content.code.annotate
+    - search.suggest
+    - toc.follow
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: teal
+      toggle:
+        icon: material/weather-night
+        name: Dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: teal
+      toggle:
+        icon: material/weather-sunny
+        name: Light mode
+  icon:
+    repo: fontawesome/brands/github
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - footnotes
+  - def_list
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+
+extra_css:
+  - assets/extra.css
+extra_javascript:
+  - assets/mathjax.js
+  - https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js
+
+nav:
+  - Home: index.md
+  - Key ideas: key-ideas.md
+  - Getting started: getting-started.md
+  - Concepts:
+      - The planning problem: concepts/planning-problem.md
+      - Plan format and metrics: concepts/plan-format.md
+      - Symbolic state: concepts/symbolic-state.md
+      - LLM calls and cost: concepts/llm-calls.md
+      - Replanning: concepts/replanning.md
+      - Retrieval memory (SAGE): concepts/memory.md
+  - Planners:
+      - Overview and comparison: planners/index.md
+      - Single-call (Direct, CoT, Few-Shot CoT): planners/single-call.md
+      - Critique loops (Self-Refine, LLM Router): planners/critique.md
+      - Step-by-step (ReAct, SayCan): planners/stepwise.md
+      - Decomposition (Hierarchical, Hierarchical Few-Shot): planners/hierarchical.md
+      - LLM+P: planners/llm-p.md
+      - SAGE, planning: planners/sage.md
+      - SAGE, repair and editing: planners/sage-repair.md
+  - Reference:
+      - Planner interface and registry: reference/interface.md
+      - Action model and verifier: reference/action-model.md
+      - Prompt building: reference/prompts.md
+  - Known pitfalls: pitfalls.md
