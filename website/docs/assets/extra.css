@@ -1,0 +1,16 @@
+/* A small "where in the code" box. */
+.md-typeset .admonition.code, .md-typeset details.code { border-color: #7e57c2; }
+.md-typeset .code > .admonition-title, .md-typeset .code > summary { background-color: rgba(126,87,194,.1); }
+.md-typeset .code > .admonition-title::before, .md-typeset .code > summary::before {
+  background-color: #7e57c2;
+  -webkit-mask-image: var(--md-admonition-icon--abstract);
+  mask-image: var(--md-admonition-icon--abstract);
+}
+/* "Measured in this repo" box. */
+.md-typeset .admonition.measured, .md-typeset details.measured { border-color: #00897b; }
+.md-typeset .measured > .admonition-title, .md-typeset .measured > summary { background-color: rgba(0,137,123,.1); }
+.md-typeset .measured > .admonition-title::before, .md-typeset .measured > summary::before {
+  background-color: #00897b;
+  -webkit-mask-image: var(--md-admonition-icon--success);
+  mask-image: var(--md-admonition-icon--success);
+}
