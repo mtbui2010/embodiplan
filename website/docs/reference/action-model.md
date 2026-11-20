@@ -51,6 +51,53 @@ Notes read from the code:
 - An unknown action returns `unknown_action` at once and no other rule runs.
 - There is no model of what is inside a container. A plan that does `Find Apple` before `Open Fridge` is not rejected for that reason.
 
+## The rules as a state machine
+
+The first picture follows the hand and `found`. A box is a state of the world (`holding`, `found`). A solid arrow is the effect that `apply` gives for a step that `check` allowed. A dotted arrow ends in the violation code that `check` raises for that step in that state ([`check`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/action_model.py#L296-L370)).
+
+```mermaid
+flowchart TD
+    S0["Hand empty<br/>found = none"]
+    S1["Hand empty<br/>found = X"]
+    S2["Holding X<br/>found = none"]
+    S0 -- "Find X: found = X" --> S1
+    S1 -- "Pick X: holding = X, found = none" --> S2
+    S2 -- "Place or PutIn: holding = none" --> S0
+    S1 -- "MoveTo Y: arrived = Y, found = none" --> S0
+    S0 -. "Pick" .-> V1["no_find_before_pick"]
+    S1 -. "Pick Y, Y not X" .-> V2["pick_not_found"]
+    S2 -. "Pick" .-> V3["already_holding"]
+    S2 -. "Find X, X in hand" .-> V4["find_held"]
+    S0 -. "Place or PutIn" .-> V5["place_without_holding"]
+    S2 -. "Place or PutIn, not at the receptacle" .-> V6["place_wrong_location"]
+```
+
+The second picture follows the opened containers and the robot's place. `arrived` is set by `MoveTo`. A target is within reach when `arrived` equals it, or when `found` equals it and `find_reaches` is true. `Place` is stricter: it needs `arrived` itself, while `PutIn` also accepts `found`.
+
+```mermaid
+flowchart TD
+    P0["Robot is not at X<br/>and has not found X"]
+    P1["Robot at X<br/>or found X"]
+    C0["Container X closed<br/>X not in opened"]
+    C1["Container X open<br/>X in opened"]
+    P0 -- "MoveTo X: arrived = X" --> P1
+    P0 -- "Find X: found = X" --> P1
+    C0 -- "Open X: add X to opened" --> C1
+    C1 -- "Close X: remove X from opened" --> C0
+    C1 -- "PutIn X: holding = none" --> C1
+    P0 -. "Open, Close" .-> W1["interact_without_find"]
+    P0 -. "Place" .-> W2["place_wrong_location"]
+    C1 -. "Open" .-> W3["already_open"]
+    C0 -. "Close" .-> W4["close_not_opened"]
+    C0 -. "PutIn, X is a container" .-> W5["putin_closed_container"]
+    P1 -. "Open or Close with a full hand, one hand" .-> W6["hand_full"]
+    P1 -. "Open or Close, X not in openable" .-> W7["not_openable"]
+```
+
+Not drawn, to keep the pictures small: `unknown_action` (first test in `check`, nothing else runs, L299-L301), `empty_object` (a step with no object, L305, L311, L331, L344), `find_wrong_place` (L317, only with `object_places`), `already_on` and `turnoff_not_on` (L356, L358, the same idea as `already_open` for the `on` set), `treat_without_holding` (L365), and the two warnings `already_there` (L307) and `serve_without_holding` (L369). `PutIn X` also counts as at the receptacle after `Find X` (the `found == X` branch of L334). In the first picture `MoveTo X` where `X` is the found object keeps `found`. `check` returns every error that applies (for `Pick` with a full hand and nothing found, both `already_holding` and `no_find_before_pick`); `simulate` records only the first.
+
+Caption: drawn from the code at 76da520, not from a recorded run, apart from these transitions, which I ran with the real `check` and `apply` on a `SymbolicState`: `Pick Mug` in the empty state gives `no_find_before_pick`; after `Find Mug`, `Pick Cup` gives `pick_not_found` and `apply` of `Pick Mug` gives `holding: Mug | found: ∅`; with `Mug` in hand `Pick Mug` gives `already_holding` and `Find Mug` gives `find_held`; `PutIn Fridge` at the closed `Fridge` gives `putin_closed_container`; `Open Fridge` twice gives `already_open`; `Close Fridge` on a closed one gives `close_not_opened`; `Place Table` while at `Fridge` gives `place_wrong_location`. Not run: `not_openable` (needs `openable=`).
+
 ## Public functions
 
 ### `check(step, world, *, capabilities=None, containers=None, openable=None, object_places=None, actions=None) -> list[Violation]`

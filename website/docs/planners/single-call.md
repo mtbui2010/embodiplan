@@ -43,6 +43,30 @@ Two things are the same for all three planners:
 - The user message starts with `_context_str`: the request, the observation text, and at most the first 30 visible objects ([`base.py:604`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/base.py#L604-L610)). Objects after the 30th are not shown to the LLM.
 - `replan` builds its user message with `_replan_context` (task, completed steps, failed step and reason, observation, visible objects) and ends with "Generate ONLY the remaining steps." ([`base.py:612`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/base.py#L612-L625)). See [Replanning](../concepts/replanning.md).
 
+The picture shows what is the same and what differs. The input is the same for the three. Each planner builds its own system prompt and its own closing sentence for the user message, makes one `_chat` call, and reads the reply its own way ([`direct.py`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/direct.py#L27-L60), [`cot.py`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/cot.py#L14-L97), [`few_shot.py`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/few_shot.py#L28-L251)).
+
+```mermaid
+flowchart TD
+    IN["task, obs, visible_objects<br/>_context_str: request, observation,<br/>first 30 objects"]
+    IN --> D1["Direct<br/>system: rules + JSON only<br/>user ends: Generate the complete step-by-step plan"]
+    IN --> C1["CoT<br/>system: rules + reasoning and plan tags<br/>user ends: Think carefully, then generate the complete plan"]
+    IN --> F1["Few-Shot CoT<br/>system: rules + 22 examples + Reasoning and Plan headers<br/>user ends: Now generate the Reasoning and Plan"]
+    D1 --> D2["_chat once<br/>temperature 0.2"]
+    C1 --> C2["_chat once<br/>temperature 0.3"]
+    F1 --> F2["_chat once<br/>temperature 0.2"]
+    D2 --> D3["parse_steps"]
+    C2 --> C3["_extract plan tag<br/>then parse_steps"]
+    F2 --> F3["_extract Plan section<br/>then parse_steps"]
+    F3 --> F4{"no steps?"}
+    F4 -- yes --> F5["_nl_lines_to_steps<br/>numbered lines to steps"]
+    D3 --> OUT["steps, PlanMetrics<br/>llm_calls = 1"]
+    C3 --> OUT
+    F4 -- no --> OUT
+    F5 --> OUT
+```
+
+Caption: drawn from the code at 76da520, not from a recorded run. `self_refine.py` is a separate planner and is not on this page; it is not drawn.
+
 Every example below was run offline. Only the LLM text is fixed; the planner code runs as written. All outputs are shown **with a scripted LLM reply**. The token counts (100 and 20) are typed into the fake, not measured. This helper is used by all three examples:
 
 ```python

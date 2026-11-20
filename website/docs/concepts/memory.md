@@ -20,6 +20,31 @@ SAGE shows the LLM a few past plans that look like the new task. This page says 
 
 A past plan for a similar task is a good few-shot example. SAGE retrieves the top `top_k` (default 3) examples and puts them in its prompts as `=== RETRIEVED EXAMPLE 1 (GT, score=0.62) ===` blocks. `GT` marks a seed example, `EPISODE` a live one. The model tends to copy them closely, so a wrong example hurts more than none.
 
+## The flow of one example
+
+An episode goes in on the left and comes out as a prompt block on the right. Writing is `SAGEPlanner.record_episode`, which calls `MemoryRetriever.add_episode`. Reading is `_retrieve_block`, which calls `MemoryRetriever.retrieve` and `format_examples_block` ([`record_episode`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/sage.py#L1075-L1107), [`retrieve`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/memory_retriever.py#L322-L341), [`same_task`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/memory_tools.py#L56-L65)).
+
+```mermaid
+flowchart TD
+    A["A run ends<br/>the caller passes success"] --> B{"record_episode:<br/>success and plan not empty<br/>and a memory exists?"}
+    B -- no --> X1["not recorded<br/>returns False"]
+    B -- yes --> C{"_simulate passes?<br/>from init_state when task is the last planned task<br/>else from an empty state"}
+    C -- no --> X2["not recorded<br/>prints a line, returns False"]
+    C -- yes --> D["add_episode<br/>live pool in memory<br/>and one JSON line in live_path<br/>verified, init_state, action_model, meta"]
+    D --> E["live pool"]
+    F["seed pool<br/>gt_path"] --> G
+    E --> G["a new task: _retrieve_block<br/>retrieve with k = top_k<br/>Jaccard, or Chroma first when on"]
+    G --> H{"leave_one_out on?"}
+    H -- yes --> I["drop examples for which<br/>memory_tools.same_task is true<br/>threshold 0.92"]
+    H -- no --> J["format_examples_block"]
+    I --> J
+    J --> K["RETRIEVED EXAMPLE n blocks<br/>in the decompose, expand and refine prompts"]
+```
+
+An example is stored only from a verified episode. It is read for any later task. The same block text goes into every prompt of that `generate_plan` call: the retrieval runs once, at its start. `replan` retrieves again, with the failed sub-goal text (else the task) as the query.
+
+Caption: drawn from the code at 76da520, not from a recorded run. Chroma was not run. The default of `leave_one_out` is off (`MemoryRetrieverConfig`), and `MEM_LEAVE_ONE_OUT=1` also turns it on.
+
 ## Two pools
 
 | pool | option | content |

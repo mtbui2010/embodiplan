@@ -189,6 +189,24 @@ For a fixed block:
 - `edit_block` returns its steps unchanged, with no LLM call ([repair page](sage-repair.md#editing-a-sub-goal-yourself));
 - `SAGEPlanner.fixed_subgoals = True` tells a caller that this form is accepted.
 
+The picture compares the two kinds of block. It is the middle of `generate_plan` for one given sub-goal ([`sage.py`, L634-L645 and L664-L748](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/sage.py#L634-L748)). The refine loop itself is the one in the stages picture above.
+
+```mermaid
+flowchart TD
+    G["a given sub-goal<br/>_given_subgoal reads it"] --> Q{"blank text?"}
+    Q -- yes --> Z["dropped"]
+    Q -- no --> O{"own steps?<br/>text, steps or name and steps"}
+    O -- "no: normal block" --> N["expand: 1 LLM call"]
+    N --> T{"gate: _simulate ok?"}
+    T -- "no, attempts left" --> RF["refine: 1 LLM call<br/>kept unless worse"]
+    RF --> T
+    T -- yes --> S
+    O -- "yes: fixed block<br/>block.fixed = True" --> FX["steps copied as given<br/>no LLM call, no gate, no refine"]
+    FX --> S["roll the state forward<br/>_simulate with stop_on_error False<br/>the next block starts from the result"]
+```
+
+Caption: drawn from the code at 76da520, not from a recorded run (the scripted run below shows the fixed side). A normal block that has no steps after expand (an expand error) skips the gate too.
+
 Run with a scripted backend (the planner's own code; only the LLM reply is scripted, and every expand reply is `MoveTo DiningTable, Place DiningTable`). Sub-goals: a fixed block "fetch the cup" with three steps, and the string "put it on the table":
 
 ```text
