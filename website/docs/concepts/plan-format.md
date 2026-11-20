@@ -1,6 +1,6 @@
 ---
 sources: [embodiplan/base.py, embodiplan/react.py]
-verified_at: a69064255c69
+verified_at: 76da520
 ---
 
 # Plan format and metrics
@@ -17,7 +17,7 @@ Every planner in embodiplan returns the same two things: a plan and a metrics re
     - [`ROBOT_ACTIONS` and the opt-in actions](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/base.py#L53-L68)
     - [`STEP_SCHEMA`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/base.py#L72-L102)
     - [`PlanMetrics`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/base.py#L144-L181)
-    - [`parse_steps`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/base.py#L475-L500)
+    - [`parse_steps`, `_text_fields`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/base.py#L475-L520)
 
 ## What a plan is
 
@@ -74,6 +74,8 @@ flowchart LR
 
 If nothing works, it returns `[]`.
 
+Then `_text_fields` cleans the list (since 0.2.6): an item that is not a dict is dropped, and a value of `action`, `object` or `target` that is not text (for example `{"action": "Wait", "object": 5}`) is turned into text (`'5'`); `None` stays `None`. Before, a number there made later `.strip()` calls fail. `parse_steps` is a thin wrapper: `_parse_steps` does the three tries, `_text_fields` the clean-up.
+
 Real results (each input is one string):
 
 | LLM text | result |
@@ -87,7 +89,7 @@ Real results (each input is one string):
 !!! warning "Only the key `steps` is read"
     A reply shaped as `{"plan": [...]}` is valid JSON, so step 1 succeeds and returns `data.get("steps", [])`, which is `[]`. The fallbacks are not tried. The steps are lost without an error. Ask for `{"steps": [...]}` (the prompts do) and check for an empty result.
 
-Other limits that follow from the code: the parser does not check that `action` is in `ROBOT_ACTIONS` and does not check the keys of a step. A list in step 1 is returned even if its items are not dicts. Validation is the job of the [action model](symbolic-state.md).
+Other limits that follow from the code: the parser does not check that `action` is in `ROBOT_ACTIONS` and does not check the keys of a step. Items that are not dicts are dropped by `_text_fields`; a dict with no `action` key is kept. Validation is the job of the [action model](symbolic-state.md).
 
 ## `PlanMetrics`
 

@@ -47,7 +47,7 @@ planner = get("Direct", host="http://localhost:11434")   # not run: needs a runn
 ```
 
 !!! warning "Default host"
-    A planner built without `host=` sends its prompts to `http://ollama.aistations.org` ([`base.py:23`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/base.py#L23)). Pass `host=` for a local server. The backends are `ollama`, `openai` and `gemini`; `provider="anthropic"` raises `ValueError`.
+    A planner built without `host=` sends its prompts to `http://ollama.aistations.org` ([`base.py:23`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/base.py#L23)). Pass `host=` for a local server. The backends are `ollama`, `openai` and `gemini`; `provider="anthropic"` raises `ValueError`.
 
 ## What it gives you
 
@@ -67,7 +67,7 @@ Direct, CoT, Few-Shot CoT, Self-Refine, ReAct, Hierarchical, LLM Router, Hierarc
 
 ## Verified so far
 
-The repository's offline test files were run with a small stand-in runner, because `pytest` was not installed on the machine used to write these docs: **97 passed**. This is not an official `pytest` run. The code examples on these pages were run offline with a scripted LLM reply.
+The repository's offline tests (`tests/`) were run with `pytest` on the merged 0.2.7 code (commit 76da520): **104 passed**. The code examples on these pages were run offline with a scripted LLM reply.
 
 **Not yet done:**
 

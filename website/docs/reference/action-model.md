@@ -1,11 +1,11 @@
 ---
 sources: [embodiplan/action_model.py, embodiplan/verifier.py, embodiplan/base.py, CHANGELOG.md, tests/test_action_model.py, eval_dataset.json, eval_dataset_expanded.json, eval_dataset_gt.json, eval_dataset_procthor.json, eval_dataset_verified.json]
-verified_at: a69064255c69
+verified_at: 76da520
 ---
 
 # Action model and verifier
 
-This page documents the rules that say whether a plan step is allowed, and what a step changes. The rules run in plain Python. They need no LLM and no network. You get three functions (`check`, `apply`, `simulate`), a list of violation codes, a switch for the robot body (`capabilities`), and a small facade (`verifier.py`) that keeps the 0.1 names and builds the feedback text that SAGE sends back to the LLM.
+This page documents the rules that say whether a plan step is allowed, and what a step changes. The rules run in plain Python. They need no LLM and no network. You get three functions (`check`, `apply`, `simulate`), a list of violation codes, a switch for the robot body (`capabilities`, which can also name actions that release the held object), and a small facade (`verifier.py`) that keeps the 0.1 names and builds the feedback text that SAGE sends back to the LLM.
 
 !!! abstract "In this page"
     - `action_model.py` is the one versioned source of preconditions and effects for 14 actions. `ACTION_MODEL_VERSION = "1.0"`.
@@ -14,19 +14,19 @@ This page documents the rules that say whether a plan step is allowed, and what 
     - `verifier.py` adds no rules. It re-exports the model, keeps `verify_step` and `_apply`, and has `format_violations_for_llm`.
 
 !!! code "Where in the code"
-    - [`embodiplan/action_model.py`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/action_model.py): `check` [L260-L367](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/action_model.py#L260-L367), `apply` [L378-L416](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/action_model.py#L378-L416), `simulate` [L422-L481](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/action_model.py#L422-L481).
-    - [`embodiplan/verifier.py`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/verifier.py): `verify_step` [L47-L64](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/verifier.py#L47-L64), `format_violations_for_llm` [L70-L104](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/verifier.py#L70-L104).
-    - Action list: `ROBOT_ACTIONS` in [`embodiplan/base.py`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/base.py#L53-L57).
+    - [`embodiplan/action_model.py`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/action_model.py): `check` [L266-L373](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/action_model.py#L266-L373), `apply` [L384-L427](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/action_model.py#L384-L427), `simulate` [L433-L492](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/action_model.py#L433-L492).
+    - [`embodiplan/verifier.py`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/verifier.py): `verify_step` [L47-L64](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/verifier.py#L47-L64), `format_violations_for_llm` [L70-L104](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/verifier.py#L70-L104).
+    - Action list: `ROBOT_ACTIONS` in [`embodiplan/base.py`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/base.py#L53-L57).
 
 ## The world and the step
 
 A step is a dict `{"action": ..., "object": ...}`. The world is **duck-typed**: any object with the fields `arrived`, `found`, `holding` (a string or `None`) and `opened`, `on` (sets). The class `SymbolicState` in this module has them (plus a `visible` set). See [Symbolic state](../concepts/symbolic-state.md) for the idea behind the fields.
 
-Before any rule runs, the action name is normalised: spaces and underscores are removed, the text is lower-cased, and it is looked up in `_ALIAS_MAP` ([L182-L204](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/action_model.py#L182-L204)). `Navigate` and `goto` become `MoveTo`; `grab` and `pickup` become `Pick`; `put` becomes `Place`; `search` and `locate` become `Find`. A name that is not in the map is kept as written. Real result (run): `Navigate Mug, grab Mug, "Turn On" Lamp` becomes `MoveTo Mug, Pick Mug, TurnOn Lamp`.
+Before any rule runs, the action name is normalised: spaces and underscores are removed, the text is lower-cased, and it is looked up in `_ALIAS_MAP` ([L187-L209](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/action_model.py#L187-L209)). `Navigate` and `goto` become `MoveTo`; `grab` and `pickup` become `Pick`; `put` becomes `Place`; `search` and `locate` become `Find`. A name that is not in the map is kept as written. A non-text action or object (a number a model wrote, such as `{"action": "Wait", "object": 5}`) is turned into text first (`normalize_action` and `_target`, added in 0.2.6). Real result (run): `Navigate Mug, grab Mug, "Turn On" Lamp` becomes `MoveTo Mug, Pick Mug, TurnOn Lamp`.
 
 ## Action table
 
-`ROBOT_ACTIONS` has 14 names. Three more (`Heat`, `Cool`, `Clean`) are added only when the environment variable `EMBODIPLAN_EXTRA_ACTIONS` lists them before import (not run here). "Reach" means `world.arrived == object`, or `world.found == object` when `find_reaches` is true.
+`ROBOT_ACTIONS` has 14 names. A robot with its own action list passes `actions=`; a name in `capabilities["release_actions"]` (see [Capabilities](#capabilities)) empties the hand instead of following this table. Three more (`Heat`, `Cool`, `Clean`) are added only when the environment variable `EMBODIPLAN_EXTRA_ACTIONS` lists them before import (not run here). "Reach" means `world.arrived == object`, or `world.found == object` when `find_reaches` is true.
 
 | Action | Preconditions (violation code) | Effect on the world | Warning |
 |---|---|---|---|
@@ -46,7 +46,7 @@ Before any rule runs, the action name is normalised: spaces and underscores are 
 
 Notes read from the code:
 
-- `Place` puts the object **on** the receptacle, so it never needs the receptacle open. Only `PutIn` checks `opened` ([L331-L334](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/action_model.py#L331-L334)).
+- `Place` puts the object **on** the receptacle, so it never needs the receptacle open. Only `PutIn` checks `opened` ([L337-L340](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/action_model.py#L337-L340)).
 - `Pick` and `Place`/`PutIn` can report several errors for one step. `simulate` records only the first one per step.
 - An unknown action returns `unknown_action` at once and no other rule runs.
 - There is no model of what is inside a container. A plan that does `Find Apple` before `Open Fridge` is not rejected for that reason.
@@ -69,9 +69,11 @@ Returns a list of `Violation(code, reason, severity)`. Errors come first, then w
 
 `DEFAULT_CONTAINERS` is `Fridge, Cabinet, Drawer, Microwave, Oven, Safe, Box, GarbageCan`. `errors(step, world, **kw)` is `check` without the warnings.
 
-### `apply(step, world, *, inplace=False)`
+### `apply(step, world, *, inplace=False, capabilities=None)`
 
-Returns the world after the step **as if it had succeeded**. It does not check anything. It copies the world (`world.copy()` if present, else `copy.deepcopy`) unless `inplace=True`. It touches only the five symbolic fields.
+Returns the world after the step **as if it had succeeded**. It does not check anything. It copies the world (`world.copy()` if present, else `copy.deepcopy`) unless `inplace=True`. It touches only the five symbolic fields. With `capabilities` (a `Capabilities`, a dict or `None`), a step whose normalised action is in `release_actions` sets `holding = None` and returns at once: the effect table above is not used for it. With `capabilities=None` (the default) nothing changes. The argument and `release_actions` were added in 0.2.6. `simulate` passes its own `capabilities` to `apply`, so a release action empties the hand inside a replay too.
+
+Real result (run, 0.2.7): holding `toy car` at `kid`, `Handover kid` with `capabilities={"release_actions": ["Handover"]}` gives `holding = None`; the same call without `capabilities` leaves `toy car` in hand. A replay `Find Mug, Pick Mug, Handover kid, Find Cup, Pick Cup` with `actions=["MoveTo","Find","Pick","Handover"]` and one hand fails at step 5 `already_holding` without `release_actions`, and passes (final `holding` = `Cup`) with it.
 
 ### `simulate(plan, world=None, visible_objects=None, containers=None, stop_on_error=True, *, initial_state=None, capabilities=None, openable=None, object_places=None, actions=None, apply_on_error=False) -> VerifierReport`
 
@@ -110,20 +112,21 @@ Warnings (never make `ok` false): `already_there`, `serve_without_holding`.
 
 ## Capabilities
 
-`Capabilities(hands=1, find_reaches=True)` is a frozen dataclass. `DEFAULT_CAPABILITIES` is that default. `Capabilities.from_any` accepts a `Capabilities`, `None`, or a dict:
+`Capabilities(hands=1, find_reaches=True, release_actions=frozenset())` is a frozen dataclass. `DEFAULT_CAPABILITIES` is that default. `Capabilities.from_any` accepts a `Capabilities`, `None`, or a dict:
 
 - `hands` may be an int or a list/tuple/set (its length is used). If `hands` is missing, `arms` is read. Then 1.
 - `find_reaches` (default true): when false, `Find` only looks, so reach rules need `MoveTo`.
+- `release_actions` (default empty): names of robot actions that release the held object, for example a manifest action whose effects include `hand_empty()` such as `Handover`. The dict value is any iterable of names; it is stored as a `frozenset`. Only `apply` (and so `simulate`) reads it. `check` does not: the action must still be in the `actions` vocabulary, or `check` returns `unknown_action` (run: `Handover` without `actions=` gives `unknown_action` at step 3).
 
-Run: `from_any({"hands": ["left", "right"]})` gives `Capabilities(hands=2, find_reaches=True)`; `from_any(None)` gives `Capabilities(hands=1, find_reaches=True)`. Only `hands < 2` triggers `hand_full`.
+Run: `from_any({"hands": ["left", "right"]})` gives `Capabilities(hands=2, find_reaches=True, release_actions=frozenset())`; `from_any(None)` gives `Capabilities(hands=1, find_reaches=True, release_actions=frozenset())`; `from_any({"hands": 1, "release_actions": ["Handover"]})` gives `release_actions=frozenset({'Handover'})`. Only `hands < 2` triggers `hand_full`.
 
 ## Version
 
-`ACTION_MODEL_VERSION = "1.0"` ([L29](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/action_model.py#L29)). The file header says a rule change bumps it and lists the change in `CHANGELOG.md`. The version has been `1.0` in every release listed there (0.2.1 to 0.2.5). Codes are described as "stable across versions" in the `Violation` comment.
+`ACTION_MODEL_VERSION = "1.0"` ([L29](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/action_model.py#L29)). The file header says a rule change bumps it and lists the change in `CHANGELOG.md`. The version has been `1.0` in every release the file lists (0.2.1 to 0.2.5 and 0.2.7; it has no 0.2.6 entry, although 0.2.6 added `release_actions`, the rule version stayed `1.0`). Codes are described as "stable across versions" in the `Violation` comment.
 
 ## Main entry point: the Pick and Place rules
 
-Verbatim from `check` ([L313-L334](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/action_model.py#L313-L334)):
+Verbatim from `check` ([L319-L340](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/action_model.py#L319-L340)):
 
 ```python
     elif a == "Pick":
@@ -209,7 +212,7 @@ Fix the plan so each step satisfies its preconditions. Common fixes:
 ## Failure modes
 
 !!! warning "The prompts teach a pattern the default model rejects"
-    The container example in `JSON_EXAMPLE` ([`base.py` L127-L138](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/base.py#L127-L138)) fails at step 7 with `hand_full` under the default one hand (run above). The "typical" container sequence in `STEP_SCHEMA` (`base.py` L101-L102) closes the container while holding the object too; I replayed it (run) and it fails at step 6 `hand_full`. Both pass with `hands=2`. CHANGELOG 0.2.1 says to pass `capabilities={"hands": 2}` to model AI2-THOR's agent. The SAGE gate also reads `capabilities` (`SAGEPlanner(capabilities=...)`).
+    The container example in `JSON_EXAMPLE` ([`base.py` L127-L138](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/base.py#L127-L138)) fails at step 7 with `hand_full` under the default one hand (run above). The "typical" container sequence in `STEP_SCHEMA` (`base.py` L101-L102) closes the container while holding the object too; I replayed it (run) and it fails at step 6 `hand_full`. Both pass with `hands=2`. CHANGELOG 0.2.1 says to pass `capabilities={"hands": 2}` to model AI2-THOR's agent. The SAGE gate also reads `capabilities` (`SAGEPlanner(capabilities=...)`).
 
 - **Pick's object field.** `STEP_SCHEMA` says the Pick object field is "ignored" (`base.py` L86). `check` does not ignore it: a given object that differs from the last `Find` gives `pick_not_found`. An empty object is accepted.
 - **No containment model.** The model does not know which object is in which container. `Find Apple` right after `MoveTo Fridge`, with the door closed, passes.
@@ -219,4 +222,4 @@ Fix the plan so each step satisfies its preconditions. Common fixes:
 
 ## Tests
 
-[`tests/test_action_model.py`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/tests/test_action_model.py) covers this page. By reading the file: a table of parametrised edge cases per rule (`test_edge_case`), `check` does not change the world, two hands allow `Open`/`Close` while holding, `capabilities` from a manifest dict, `find_reaches=False`, `object_places`, `openable`, the `actions` vocabulary, container name matching, alias normalisation, `apply` (including a duck-typed world), `simulate` (ok plan, warnings, `apply_on_error`, legacy signature), version and public names, facade parity (`verifier.simulate is am.simulate`, `verifier._apply`), and that the bundled reference plans keep their pass counts (8, 21, 12, 8 and 12 for the five `eval_dataset*.json` files). Run it with `PYTHONPATH=$PWD python -m pytest -q tests`. No pytest result is claimed here.
+[`tests/test_action_model.py`](https://github.com/mtbui2010/embodiplan/blob/76da520/tests/test_action_model.py) covers this page. By reading the file: a table of parametrised edge cases per rule (`test_edge_case`), `check` does not change the world, two hands allow `Open`/`Close` while holding, `capabilities` from a manifest dict, `find_reaches=False`, `object_places`, `openable`, the `actions` vocabulary, container name matching, alias normalisation, `apply` (including a duck-typed world), `simulate` (ok plan, warnings, `apply_on_error`, legacy signature), version and public names, facade parity (`verifier.simulate is am.simulate`, `verifier._apply`), and that the bundled reference plans keep their pass counts (8, 21, 12, 8 and 12 for the five `eval_dataset*.json` files). Run it with `PYTHONPATH=$PWD python -m pytest -q tests`. No pytest result is claimed here. The release action (`apply` and `simulate` with `release_actions`) is covered by `test_release_action_clears_hand` in [`tests/test_sage_v2_hooks.py`](https://github.com/mtbui2010/embodiplan/blob/76da520/tests/test_sage_v2_hooks.py#L99-L107).

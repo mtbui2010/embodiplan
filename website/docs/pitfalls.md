@@ -1,6 +1,6 @@
 ---
 sources: [README.md, docs/usage.md, CHANGELOG.md, embodiplan/base.py, embodiplan/__init__.py, embodiplan/action_model.py, embodiplan/robot_prompt.py, embodiplan/memory_retriever.py, embodiplan/data/eval_dataset_gt.json, embodiplan/direct.py, embodiplan/cot.py, embodiplan/few_shot.py, embodiplan/few_shot_examples.py, embodiplan/self_refine.py, embodiplan/react.py, embodiplan/hierarchical.py, embodiplan/my_planner.py, embodiplan/llm_router.py, embodiplan/saycan.py, embodiplan/llmp.py, embodiplan/sage.py]
-verified_at: a69064255c69
+verified_at: 76da520
 ---
 
 # Known pitfalls
@@ -8,7 +8,7 @@ verified_at: a69064255c69
 This page lists the problems of embodiplan that were read in the code and, where stated, reproduced offline. For each one you get the symptom, the cause with a link to the line, a way to avoid it, and the page that has the detail.
 
 !!! note "Read this first"
-    These entries describe the code at commit `a69064255c69`. The code may change, and then an entry may no longer be true. They are the behaviour today, not a list of intended features. Each entry was checked in the code; "reproduced" means it was run offline with a scripted LLM reply or a fake `requests.post` (no real model, no network).
+    These entries describe the code at commit `76da520` (embodiplan 0.2.7). Links to lines that did not change since `a69064255c69` still point at that earlier commit, which is a valid permalink. The code may change, and then an entry may no longer be true. They are the behaviour today, not a list of intended features. Each entry was checked in the code; "reproduced" means it was run offline with a scripted LLM reply or a fake `requests.post` (no real model, no network).
 
 !!! abstract "In this page"
     - Most failures do not raise. A planner usually catches the error and returns an empty plan with `parse_ok=False`. Always check `parse_ok` and `num_steps`.
@@ -63,7 +63,7 @@ function function module
 ### Planners cannot set `seed`
 
 - **Symptom.** `CoTPlanner(..., seed=7)` runs, but the backend seed stays `None`. `embodiplan.cot(model="m", seed=7)` raises `TypeError: cot() got an unexpected keyword argument 'seed'`. Reproduced.
-- **Cause.** `LLMBackend` has a `seed` option that goes to Ollama ([`base.py:206-215`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/base.py#L206-L215), [`L334-L335`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/base.py#L334-L335)). `BasePlanner.__init__` builds the backend without it and swallows extra keywords in `**kwargs` ([`base.py:523-528`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/base.py#L523-L528)).
+- **Cause.** `LLMBackend` has a `seed` option that goes to Ollama ([`base.py:206-215`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/base.py#L206-L215), [`L334-L335`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/base.py#L334-L335)). `BasePlanner.__init__` builds the backend without it and swallows extra keywords in `**kwargs` ([`base.py:543-548`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/base.py#L543-L548)).
 - **Avoid.** After construction set `planner._backend.seed = 7` (private attribute; this assignment was run and `planner._backend.seed` printed `7`; that the seed then reaches Ollama is read from `base.py:334-335`, not run). Runs are not reproducible by default.
 - **Detail.** [LLM calls and cost](concepts/llm-calls.md).
 
@@ -128,7 +128,7 @@ function function module
 ### The container example the prompts teach fails the default gate
 
 - **Symptom.** `JSON_EXAMPLE` and the container sequence in `STEP_SCHEMA` do `Open Fridge`, `Pick Apple`, `Close Fridge`. With the default one hand, `simulate` gives `hand_full` (step 7 for the example). A model that copies the example is rejected by the gate.
-- **Cause.** The prompt text ([`base.py:127-138`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/base.py#L127-L138)) and the rule `Capabilities.hands = 1` ([`action_model.py:65`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/action_model.py#L65), check at [`L353-L354`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/action_model.py#L353-L354)).
+- **Cause.** The prompt text ([`base.py:127-138`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/base.py#L127-L138)) and the rule `Capabilities.hands = 1` ([`action_model.py:65`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/action_model.py#L65), check at [`L359-L360`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/action_model.py#L359-L360)).
 - **Avoid.** Pass `capabilities={"hands": 2}` when you want this pattern. Both plans pass with two hands.
 - **Detail.** The run is on [Action model, Failure modes](reference/action-model.md#failure-modes); the prompt side is on [Prompts](reference/prompts.md#failure-modes).
 
@@ -136,7 +136,7 @@ function function module
 
 - `Pick` with a different object than the last `Find` gives `pick_not_found`, although `STEP_SCHEMA` says the field is ignored. There is no containment model (`Find Apple` after `MoveTo Fridge` with the door closed passes). `MoveTo <room>` clears `found`. Unlisted container names (such as `Basket`) are not checked. See [Action model](reference/action-model.md#failure-modes).
 - The bundled reference plans often break the rules: only 12 of 38 pass `simulate`; the most common first error is `Pick` without `Find` (19 plans). See [Memory](concepts/memory.md).
-- The SAGE gate does not pass `actions=` to the model ([`sage.py:426-428`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/sage.py#L426-L428)), so a robot's own action names are reported as `unknown_action`. Use `enable_verifier=False` or `safe_refine=True`. See [Prompts](reference/prompts.md#failure-modes).
+- The SAGE gate does not pass `actions=` to the model ([`sage.py:458-460`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/sage.py#L458-L460)), so a robot's own action names are reported as `unknown_action`. Use `enable_verifier=False` or `safe_refine=True`. See [Prompts](reference/prompts.md#failure-modes).
 
 ## Critique loops
 
@@ -206,14 +206,14 @@ MemoryRetriever {'seed': 0, 'live': 0}
 ```
 
   (a default `SAGEPlanner`: pool sizes, then hits for `"make coffee"`; with `gt_path="eval_dataset_gt.json"` it finds 3.)
-- **Cause.** `gt_path` and `live_path` default to `""` ([`sage.py:350-351`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/sage.py#L350-L351), [`memory_retriever.py:163-164`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/memory_retriever.py#L163-L164)) and the seed file loads only when `gt_path` is set ([`memory_retriever.py:190-193`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/memory_retriever.py#L190-L193)). The bundled file is not loaded on its own.
+- **Cause.** `gt_path` and `live_path` default to `""` ([`sage.py:371-372`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/sage.py#L371-L372), [`memory_retriever.py:163-164`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/memory_retriever.py#L163-L164)) and the seed file loads only when `gt_path` is set ([`memory_retriever.py:190-193`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/memory_retriever.py#L190-L193)). The bundled file is not loaded on its own.
 - **Avoid.** Pass `gt_path` (see [Memory](concepts/memory.md)). Seed examples can themselves break the gate's rules.
 - **Detail.** [SAGE](planners/sage.md#failure-modes).
 
 ### A SAGE refine that parses to `[]` is accepted
 
 - **Symptom.** The plan for a sub-goal becomes empty after a refine whose reply could not be read. Reproduced on [SAGE](planners/sage.md#failure-modes): `steps=0`, `llm_calls=3`, `refines=1`.
-- **Cause.** An empty plan has no violations, so it passes the re-check. Only `safe_refine=True` keeps the old steps ([`sage.py:653`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/sage.py#L653); in repair [`sage.py:820`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/sage.py#L820)). The default is `False` ([`sage.py:358`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/sage.py#L358)).
+- **Cause.** An empty plan has no violations, so it passes the re-check. Only `safe_refine=True` keeps the old steps ([`sage.py:725`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/sage.py#L725); in repair [`sage.py:906`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/sage.py#L906)). The default is `False` ([`sage.py:379`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/sage.py#L379)).
 - **Avoid.** Pass `safe_refine=True`.
 - **Detail.** [SAGE](planners/sage.md), [SAGE repair](planners/sage-repair.md#failure-modes) (task string must match for `replan`; a failed repair call looks like a skipped call; a rejected refine keeps an invalid suffix).
 

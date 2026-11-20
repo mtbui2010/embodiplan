@@ -1,6 +1,6 @@
 ---
 sources: [embodiplan/base.py, embodiplan/action_model.py, embodiplan/direct.py, embodiplan/cot.py, embodiplan/few_shot.py, embodiplan/few_shot_examples.py, embodiplan/self_refine.py, embodiplan/react.py, embodiplan/hierarchical.py, embodiplan/my_planner.py, embodiplan/llm_router.py, embodiplan/saycan.py, embodiplan/llmp.py, embodiplan/sage.py]
-verified_at: a69064255c69
+verified_at: 76da520
 ---
 
 # Replanning
@@ -14,8 +14,8 @@ A plan can fail while a robot runs it. A door is shut, an object is not where th
     - The table at the end gives, for each planner, the strategy, the use of `failure_reason`, and the `extra` keys.
 
 !!! code "Where in the code"
-    - [`BasePlanner.replan`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/base.py#L572-L581) (the contract; the body is `...`)
-    - [`BasePlanner._replan_context`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/base.py#L592-L605)
+    - [`BasePlanner.replan`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/base.py#L592-L601) (the contract; the body is `...`)
+    - [`BasePlanner._replan_context`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/base.py#L612-L625)
     - Each planner's own `replan` is linked from its page in the table below.
 
 ## The contract
@@ -33,7 +33,7 @@ planner.replan(task, completed, failed_step, failure_reason, obs, visible_object
 | `obs` | `str` | the text of the scene now |
 | `visible_objects` | `list[str]` | object names now; prompts list at most the first 30 |
 
-The base method only declares this signature ([`base.py:572-581`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/base.py#L572-L581)). It returns `(steps, PlanMetrics)`, the same pair as `generate_plan`. See [Planner interface](../reference/interface.md) and [Plan format and metrics](plan-format.md).
+The base method only declares this signature ([`base.py:592-601`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/base.py#L592-L601)). It returns `(steps, PlanMetrics)`, the same pair as `generate_plan`. See [Planner interface](../reference/interface.md) and [Plan format and metrics](plan-format.md).
 
 !!! note "What "remaining steps only" means in code"
     Only ReAct and SayCan cut the list in code: they return what they produced after `completed`. The other planners ask for "only the remaining steps" in the prompt. Nothing checks that the reply obeys. If the LLM repeats a completed step, that step is in the result.
@@ -90,7 +90,7 @@ flowchart TD
 
 - ReAct puts `completed` as the first steps of the loop, adds a `[FAILURE] ...` line to `obs`, and runs for at most `max_steps - len(completed)` turns.
 - SayCan replays `completed` into a fresh symbolic state and decodes again. It does not use `failure_reason` or `obs`.
-- SAGE finds the sub-goal that holds the failed step and asks for the rest of that sub-goal from the believed state. Later sub-goals are kept as they are. It falls back to strategy B when there is no earlier plan for the same task string, or when `enable_local_repair=False`. See [SAGE, repair and editing](../planners/sage-repair.md).
+- SAGE finds the sub-goal that holds the failed step and asks for the rest of that sub-goal from the believed state. Later sub-goals are kept as they are. `replan(..., budget=)` (0.2.7) takes the same optional call budget as `generate_plan`; it also covers the global fallback. It falls back to strategy B when there is no earlier plan for the same task string, or when `enable_local_repair=False`. See [SAGE, repair and editing](../planners/sage-repair.md).
 
 ## Comparison: how each planner replans
 

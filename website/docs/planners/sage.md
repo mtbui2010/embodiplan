@@ -1,25 +1,26 @@
 ---
-sources: [embodiplan/sage.py, embodiplan/base.py, embodiplan/verifier.py, embodiplan/action_model.py, embodiplan/memory_retriever.py, embodiplan/memory_tools.py, embodiplan/robot_prompt.py, embodiplan/__init__.py, embodiplan/data/eval_dataset_gt.json, CHANGELOG.md, docs/memory.md, tests/test_sage_repair.py, tests/test_sage_subgoals.py, tests/test_action_model.py, tests/test_robot_prompt.py, tests/test_memory_tools.py, tests/data/sage_prompts_0_2_3.txt]
-verified_at: a69064255c69
+sources: [embodiplan/sage.py, embodiplan/base.py, embodiplan/verifier.py, embodiplan/action_model.py, embodiplan/memory_retriever.py, embodiplan/memory_tools.py, embodiplan/robot_prompt.py, embodiplan/__init__.py, embodiplan/data/eval_dataset_gt.json, CHANGELOG.md, docs/memory.md, tests/test_sage_repair.py, tests/test_sage_subgoals.py, tests/test_sage_v2_hooks.py, tests/test_action_model.py, tests/test_robot_prompt.py, tests/test_memory_tools.py, tests/data/sage_prompts_0_2_3.txt]
+verified_at: 76da520
 ---
 
 # SAGE, planning
 
-SAGE is the most complete planner in embodiplan. It splits a task into sub-goals, asks the LLM to expand each sub-goal into steps, checks every block with the zero-token [action model](../concepts/symbolic-state.md), asks for one correction when a block breaks a rule, and removes repeated steps at the end. This page covers `generate_plan`. What SAGE does after a step fails is on [SAGE, repair and editing](sage-repair.md).
+SAGE is the most complete planner in embodiplan. It splits a task into sub-goals, asks the LLM to expand each sub-goal into steps, checks every block with the zero-token [action model](../concepts/symbolic-state.md), asks for one correction when a block breaks a rule, and removes repeated steps at the end. This page covers `generate_plan`, including the two inputs a caller can add: its own sub-goals (with or without fixed steps) and an LLM-call budget. What SAGE does after a step fails is on [SAGE, repair and editing](sage-repair.md).
 
 !!! abstract "In this page"
-    - One `generate_plan` (with no `subgoals=`) makes `1 + N + R` LLM calls: one decompose, one expand per sub-goal (N), and at most `max_refines` refines per block (R).
-    - When the caller passes `subgoals=`, there is no decompose call, and a given sub-goal may carry fixed steps. See [When the caller gives the sub-goals](#when-the-caller-gives-the-sub-goals).
+    - One `generate_plan` with no `subgoals=` makes `1 + N + R` LLM calls: one decompose, one expand per sub-goal (N), and at most `max_refines` refines per block (R).
+    - With `subgoals=` the caller gives the sub-goals: no decompose call, and a given sub-goal may carry its own steps (a fixed block: no expand, no refine). See [When the caller gives the sub-goals](#when-the-caller-gives-the-sub-goals).
+    - With `budget=` an object's `take()` runs before every LLM call, and a refusal stops the planner between two calls. See [A caller budget](#a-caller-budget).
     - The gate checks each block from the running symbolic state. A refine that verifies worse than the block it replaces is dropped.
     - Memory examples are pasted into the decompose, expand and refine prompts. With the default constructor the example pool is **empty**, so nothing is retrieved until you pass `gt_path=` or `live_path=`.
     - `actions=[...]` and `robot_description=` rewrite the four system prompts for a robot with its own actions. The defaults stay byte-identical to version 0.2.3.
 
 !!! code "Where in the code"
-    - [Prompts](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/sage.py#L67-L120) and [`SAGEPlanner.__init__`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/sage.py#L342-L414)
-    - [`_decompose`, `_expand`, `_refine`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/sage.py#L474-L555)
-    - [`generate_plan`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/sage.py#L560-L728), [`_worse`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/sage.py#L939-L947)
-    - [`_parse_subgoals`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/sage.py#L194-L224), [`flatten`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/sage.py#L231-L280), [`belief_from_obs`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/sage.py#L295-L316)
-    - [`robot_prompt.system_prompts`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/robot_prompt.py#L144-L164), [`MemoryRetriever.retrieve`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/memory_retriever.py#L322-L338)
+    - [Prompts](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/sage.py#L67-L120) and [`SAGEPlanner.__init__`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/sage.py#L363-L435)
+    - [`_decompose`, `_expand`, `_refine`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/sage.py#L508-L592), [`_chat`, the budget](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/sage.py#L437-L446)
+    - [`generate_plan`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/sage.py#L597-L802), [`_given_subgoal`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/sage.py#L241-L248), [`_worse`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/sage.py#L1027-L1035)
+    - [`_parse_subgoals`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/sage.py#L220-L234), [`flatten`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/sage.py#L251-L300), [`belief_from_obs`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/sage.py#L315-L336)
+    - [`robot_prompt.system_prompts`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/robot_prompt.py#L144-L164), [`MemoryRetriever.retrieve`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/memory_retriever.py#L322-L338)
 
 !!! warning "Default host"
     A planner built without `host=` sends its prompts to `http://ollama.aistations.org` (`embodiplan/base.py:23`). Pass `host="http://localhost:11434"` for a local Ollama server. The backends are `ollama`, `openai` and `gemini`; `provider="anthropic"` raises `ValueError`. The examples on this page set `host=` and never call a server: they replace `_chat`.
@@ -30,7 +31,7 @@ The registry key is `"SAGE"`. `"GRACE"` is an alias for the old name.
 
 ### Inputs and options
 
-`generate_plan(task, obs, visible_objects, *, state=None)` (at the pin) returns `(steps, PlanMetrics)`. See [Plan format](../concepts/plan-format.md) for both.
+`generate_plan(task, obs, visible_objects, *, state=None, subgoals=None, budget=None)` returns `(steps, PlanMetrics)`. See [Plan format](../concepts/plan-format.md) for both.
 
 | argument | meaning |
 |---|---|
@@ -38,10 +39,12 @@ The registry key is `"SAGE"`. `"GRACE"` is an alias for the old name.
 | `obs` | scene text. A `Robot state: arrived=... found=... holding=... opened=[...] on=[...]` line in it is read as the start belief |
 | `visible_objects` | object names; the first 30 go in the prompts and all go in the gate |
 | `state` | start belief (`SymbolicState` or a duck-typed world). Wins over `obs` |
+| `subgoals` | the caller's own sub-goals: no decompose call. Each item is a string, `(text, steps)` or `{"name": text, "steps": steps}`; with steps it is a fixed block. See [below](#when-the-caller-gives-the-sub-goals) |
+| `budget` | an object with `take(n=1, what="")`, called before every LLM call; its exception stops the planner. See [below](#a-caller-budget) |
 
-The gate starts from `state`, else from the `Robot state:` line of `obs`, else from an empty state (`sage.py:599-602`). Without this, a plan for a robot that already holds a mug would be "refined" for a problem it does not have (fixed in 0.2.2, see `CHANGELOG.md`).
+The gate starts from `state`, else from the `Robot state:` line of `obs`, else from an empty state ([`sage.py:665-668`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/sage.py#L665-L668)). Without this, a plan for a robot that already holds a mug would be "refined" for a problem it does not have (fixed in 0.2.2, see `CHANGELOG.md`).
 
-Constructor options ([`sage.py:342-364`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/sage.py#L342-L364)):
+Constructor options ([`sage.py:363-385`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/sage.py#L363-L385)):
 
 | name | default | meaning |
 |---|---|---|
@@ -59,14 +62,16 @@ Constructor options ([`sage.py:342-364`](https://github.com/mtbui2010/embodiplan
 | `actions`, `robot_description` | `None` | the robot's own prompt, see [below](#a-robots-own-action-list) |
 | `progress` (attribute) | `None` | `callable(dict)` called at each stage, for a UI |
 
+`SAGEPlanner.fixed_subgoals` is a class attribute, `True`. A caller can read it to learn that this planner keeps the steps of a fixed block (0.2.7).
+
 ### What the LLM is asked (prompt and temperature)
 
-Three kinds of call are made in `generate_plan`. Each has a fixed system prompt and one user message.
+Three kinds of call are made in `generate_plan`; with `subgoals=` the decompose call is not made. Each has a fixed system prompt and one user message.
 
 | call | system prompt | user message holds | temperature |
 |---|---|---|---|
 | decompose | `_DECOMPOSE_SYSTEM`: "break the given task into 2-5 ordered sub-goals", reply `{"subgoals": [...]}` | examples block, task, `obs`, visible objects | 0.3 |
-| expand (one per sub-goal) | `_EXPAND_SYSTEM`: action list, `STEP_SCHEMA`, `JSON_EXAMPLE` | examples block, overall task, current sub-goal, **current symbolic state**, `obs`, visible objects | 0.2 |
+| expand (one per sub-goal) | `_EXPAND_SYSTEM`: action list, `STEP_SCHEMA`, `JSON_EXAMPLE` | examples block, overall task, current sub-goal (with `subgoals=`, also the line "Plan only this sub-goal; the earlier sub-goals are done (see the state)."), **current symbolic state**, `obs`, visible objects | 0.2 |
 | refine (only after a rejection) | `_REFINE_SYSTEM` | examples block, task, sub-goal, state at block start, previous attempt as JSON, violation feedback | 0.1 |
 
 The `repair` prompt exists too but is used only by `replan` ([repair page](sage-repair.md)).
@@ -75,9 +80,9 @@ The `repair` prompt exists too but is used only by `replan` ([repair page](sage-
 
 ```mermaid
 flowchart TD
-    M["1 retrieve examples<br/>(memory, may be empty)"] --> D["2 decompose<br/>1 call, T=0.3"]
-    D --> E["3 expand sub-goal i<br/>1 call, T=0.2, state in prompt"]
-    E --> G{"4 gate: simulate<br/>block ok?"}
+    M["1 retrieve examples<br/>(memory, may be empty)"] --> D["2 decompose<br/>1 call, T=0.3<br/>(none with subgoals=)"]
+    D --> E["3 expand sub-goal i<br/>1 call, T=0.2, state in prompt<br/>(none for a fixed block)"]
+    E --> G{"4 gate: simulate<br/>block ok?<br/>(not for a fixed block)"}
     G -- yes --> R["5 roll state forward"]
     G -- "no, attempts < max_refines" --> F["refine<br/>1 call, T=0.1"]
     F --> W{"worse than<br/>the old block?"}
@@ -87,9 +92,9 @@ flowchart TD
     R -->|"all done"| P["6 flatten + dedupe"]
 ```
 
-**1. Retrieve.** `_retrieve_block(task)` asks the memory for the top `top_k` examples and formats them as one text block. With memory off or any exception the block is `""` (`sage.py:464-471`).
+**1. Retrieve.** `_retrieve_block(task)` asks the memory for the top `top_k` examples and formats them as one text block. With memory off or any exception the block is `""` ([`sage.py:498-505`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/sage.py#L498-L505)).
 
-**2. Decompose.** One call. The reply goes through `_parse_subgoals`. If the call raises, or the parser finds nothing, the sub-goal list becomes `[task]` (`sage.py:583-593`). The parser exists because 7-8B models often answer in odd shapes. In one evaluation a model split sub-goals into single words and a two-object task became 61 steps in 22 blocks (0.2.5, `CHANGELOG.md`). The parser now handles word lists, step-shaped dicts, two JSON objects in a row, and prose with no JSON. Real results:
+**2. Decompose.** One call (skipped when the caller gives `subgoals=`, see below). The reply goes through `_parse_subgoals`. If the call raises, or the parser finds nothing, the sub-goal list becomes `[task]` ([`sage.py:646-659`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/sage.py#L646-L659)). The parser exists because 7-8B models often answer in odd shapes. In one evaluation a model split sub-goals into single words and a two-object task became 61 steps in 22 blocks (0.2.5, `CHANGELOG.md`). The parser now handles word lists, step-shaped dicts, two JSON objects in a row, and prose with no JSON. Real results:
 
 | LLM text | result |
 |---|---|
@@ -97,9 +102,9 @@ flowchart TD
 | `{"subgoals": ["Go to the sofa", "Pick up the mug"]}` | unchanged phrases |
 | `I cannot.` | `[]` (then `generate_plan` uses `[task]`) |
 
-**3. Expand.** For each sub-goal, one call. The prompt carries the symbolic state after the previous block, for example `arrived: Fridge | found: ∅ | holding: Apple | opened: ∅ | on: ∅`. The reply goes through `parse_steps` and `normalize_plan`. If the call raises, the block gets `[]` and the gate is skipped for it.
+**3. Expand.** For each sub-goal, one call. The prompt carries the symbolic state after the previous block, for example `arrived: Fridge | found: ∅ | holding: Apple | opened: ∅ | on: ∅`. The reply goes through `parse_steps` and `normalize_plan`. If the call raises, the block gets `[]` and the gate is skipped for it. A fixed block has no expand call: its steps are the caller's.
 
-**4. Gate and refine.** This is the loop at [`sage.py:629-674`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/sage.py#L629-L674). In short:
+**4. Gate and refine.** This is the loop at [`sage.py:701-748`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/sage.py#L701-L748). In short (the loop is skipped for a fixed block, `... and not block.fixed`):
 
 1. `simulate` runs the block from the running state.
 2. While the report is not ok and fewer than `max_refines` refines were made, build feedback with `format_violations_for_llm` and call `_refine`.
@@ -118,20 +123,22 @@ def _worse(self, new_steps, new_report, old_steps, state, visible_objects) -> bo
     return _n_errors(new) > _n_errors(old)
 ```
 
-(`sage.py:939-947`.) Equal error counts are accepted. A refine with fewer errors is accepted even if it is still not ok. The feedback text lists the first violation and a fixed list of common fixes; the example below prints one.
+([`sage.py:1027-1035`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/sage.py#L1027-L1035).) Equal error counts are accepted. A refine with fewer errors is accepted even if it is still not ok. The feedback text lists the first violation and a fixed list of common fixes; the example below prints one.
 
-**5. Roll forward.** After the loop, the block is simulated again with `stop_on_error=False`, and the final state becomes the start state for the next sub-goal. So later sub-goals see the effects even of an imperfect block (`sage.py:689-697`).
+**5. Roll forward.** After the loop, the block is simulated again with `stop_on_error=False`, and the final state becomes the start state for the next sub-goal. So later sub-goals see the effects even of an imperfect block ([`sage.py:763-771`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/sage.py#L763-L771)).
 
-**6. Flatten and dedupe.** `flatten` joins the blocks and drops a step whose effect already holds: `MoveTo X` when already at X, `Find X` when X is already found (and nothing is held), `Open X` when X is open, `Close X` when X is not open, `TurnOn X` when X is on, `TurnOff X` when X is off. `Pick` and `Place` are never dropped ([`sage.py:231-280`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/sage.py#L231-L280)). The block list stays in `planner.last_blocks`, so the dedupe does not change the blocks, only the flat plan.
+**6. Flatten and dedupe.** `flatten` joins the blocks and drops a step whose effect already holds: `MoveTo X` when already at X, `Find X` when X is already found (and nothing is held), `Open X` when X is open, `Close X` when X is not open, `TurnOn X` when X is on, `TurnOff X` when X is off. `Pick` and `Place` are never dropped ([`sage.py:251-300`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/sage.py#L251-L300)). The block list stays in `planner.last_blocks`, so the dedupe does not change the blocks, only the flat plan.
 
 ### Parsing and fallbacks
 
 | situation | what happens |
 |---|---|
 | decompose raises or gives no sub-goals | one sub-goal: the task itself |
-| expand raises | that block is `[]`, no gate |
+| `subgoals=` given, but every text is blank | one sub-goal: the task itself (blank texts are dropped) |
+| expand raises (not a budget refusal) | that block is `[]`, no gate |
 | expand reply is not parsable | `parse_steps` gives `[]`, the block is empty, no gate (the gate needs `steps`) |
-| refine raises | the loop stops; the prior steps stay |
+| refine raises (not a budget refusal) | the loop stops; the prior steps stay |
+| the budget refuses a call | `generate_plan` raises the budget's own exception; see [A caller budget](#a-caller-budget) |
 | refine parses to `[]` and `safe_refine=False` | `[]` is simulated, is ok, and **replaces** the block |
 | refine parses to `[]` and `safe_refine=True` | the prior steps stay |
 | `enable_verifier=False` | the gate and refine loop (step 4) is skipped; blocks are used as expanded |
@@ -140,7 +147,7 @@ def _worse(self, new_steps, new_report, old_steps, state, visible_objects) -> bo
 
 ### Output and `extra` keys
 
-`PlanMetrics.method` is `"SAGE"`, `llm_calls` counts only calls that returned, and `extra` has seven keys ([`sage.py:712-720`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/sage.py#L712-L720)):
+`PlanMetrics.method` is `"SAGE"`, `llm_calls` counts only calls that returned, and `extra` has seven keys ([`sage.py:786-794`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/sage.py#L786-L794)):
 
 | key | type | meaning |
 |---|---|---|
@@ -149,17 +156,14 @@ def _worse(self, new_steps, new_report, old_steps, state, visible_objects) -> bo
 | `refines` | int | refine calls made |
 | `verifier_rejections` | int | times a block failed the gate and a refine was started |
 | `subgoal_block_sizes` | list[int] | steps per block, before dedupe |
-| `refined_blocks` | list[bool] | a refine was called for this block |
+| `refined_blocks` | list[bool] | a refine was called for this block (false for a fixed block) |
 | `refine_rejected` | list[bool] | a refine was dropped as worse |
 
-`planner.last_blocks` holds `SubgoalBlock(name, steps, refined, refine_rejected)` for the last plan. `extra` is not in `to_dict()`.
+`planner.last_blocks` holds `SubgoalBlock(name, steps, refined, refine_rejected, fixed)` for the last plan ([`sage.py:163-170`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/sage.py#L163-L170)). `extra` is not in `to_dict()`.
 
 ### When the caller gives the sub-goals
 
-!!! note "Newer than the pin"
-    This section describes SAGE 0.2.6 and 0.2.7 and how robot_agent calls it. The rest of this page is pinned at `a69064255c69` (0.2.5), where `generate_plan` has no `subgoals` argument. The 0.2.6 and 0.2.7 commits (`eb79aa9`, `4080017`) are on the `sage-v2/*` branches and are not on `main` at the pin. The robot_agent behaviour below is newer than the pin too. Code in this section is quoted from `embodiplan/sage.py` at commit `4080017`.
-
-A caller that already knows the sub-goals can pass them: `generate_plan(task, obs, visible_objects, *, state=None, subgoals=None, budget=None)`. SAGE then does not decompose. It expands each given sub-goal on its own, one expand call each, plus refines. The symbolic state after one block is the start state of the next. Each expand prompt also says "Plan only this sub-goal; the earlier sub-goals are done (see the state)." Without `subgoals` the behaviour is the one described above.
+A caller that already knows the sub-goals passes them: `generate_plan(..., subgoals=[...])`. SAGE then does not decompose. It expands each given sub-goal on its own, one expand call each, plus refines. The symbolic state after one block is the start state of the next. Each expand prompt also says "Plan only this sub-goal; the earlier sub-goals are done (see the state)." Without `subgoals` (or with an empty list) SAGE decomposes as described above. A blank sub-goal text is dropped; if nothing is left the list is `[task]`.
 
 ```python
         if given:
@@ -171,29 +175,51 @@ A caller that already knows the sub-goals can pass them: `generate_plan(task, ob
                 if own is not None:
                     fixed_steps[len(subgoals)] = own
                 subgoals.append(name)
-        else:
-            try:
-                subgoals, in_d, out_d = self._decompose(task, obs, visible_objects, ex_block)
 ```
 
-So the calls are `N + R` (no decompose), and fewer when a block is fixed.
+([`sage.py:637-645`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/sage.py#L637-L645).) So the calls are `N + R` (no decompose), and fewer when a block is fixed.
 
-**Fixed block.** A given sub-goal may be a string, a pair `(text, steps)` or `{"name": text, "steps": steps}`. With steps it is a fixed block: the caller wrote the steps, and the LLM never does.
+**Fixed block.** A given sub-goal may be a string, a pair `(text, steps)` or `{"name": text, "steps": steps}`. With steps it is a fixed block: the caller wrote the steps, and the LLM never does. `_given_subgoal` ([`sage.py:241-248`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/sage.py#L241-L248)) tells the three forms apart: a dict needs a list `steps` and a `name`, a tuple needs exactly two items with a list second; anything else is read as a string.
 
-```python
-def _given_subgoal(item) -> tuple[str, list[dict] | None]:
-    """(text, own steps or None) of one caller-given sub-goal: a string, ``(text, steps)`` or
-    ``{"name": text, "steps": steps}``."""
+For a fixed block:
+
+- there is no expand call, no gate and no refine (`if self.enable_verifier and steps and not block.fixed:`), and `block.fixed` is `True`;
+- the state still rolls forward through it: the block is simulated like any other, and the final state is the start of the next block, so a later block is planned from what the fixed steps did;
+- the steps go into the plan as given, even if the gate would reject them. SAGE does not check them; run `simulate` yourself if you need that;
+- `edit_block` returns its steps unchanged, with no LLM call ([repair page](sage-repair.md#editing-a-sub-goal-yourself));
+- `SAGEPlanner.fixed_subgoals = True` tells a caller that this form is accepted.
+
+Run with a scripted backend (the planner's own code; only the LLM reply is scripted, and every expand reply is `MoveTo DiningTable, Place DiningTable`). Sub-goals: a fixed block "fetch the cup" with three steps, and the string "put it on the table":
+
+```text
+m.llm_calls = 1, budget used = 1, [b.fixed for b in last_blocks] = [True, False]
+subgoal_block_sizes = [3, 2], refined_blocks = [False, False]
+steps: MoveTo Kitchen, Find Cup, Pick Cup, MoveTo DiningTable, Place DiningTable
+edit_block(last_blocks[0], "anything", task="serve") == the given steps: True, no new call
 ```
 
-For a fixed block there is no expand call, no gate and no refine (`if self.enable_verifier and steps and not block.fixed:`). The state still rolls forward through it: the block is simulated like any other, and the final state is the start of the next block. `SAGEPlanner.fixed_subgoals = True` tells a caller that this form is accepted.
+The only LLM call was the expand of the string sub-goal.
+
+### A caller budget
+
+`generate_plan(..., budget=obj)` and `replan(..., budget=obj)` take an object with a method `take(n=1, what="")`. SAGE calls `obj.take(what="planner")` before **every** LLM call: decompose, expand, refine, repair and the repair refine ([`_chat`, `sage.py:437-446`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/sage.py#L437-L446)). A fixed block makes no call, so it costs nothing. The budget class must accept the keyword `what=`.
+
+When `take` raises an `Exception`, SAGE wraps it in the internal `_BudgetStop` and stops before that call ([`_BudgetStop`, `sage.py:151-158`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/sage.py#L151-L158)). `generate_plan` (and `replan`) then re-raises **the budget's own exception**, unchanged; the wrapper never reaches the caller. The broad `except Exception` handlers that normally turn an LLM error into a fallback let `_BudgetStop` through. So a refused budget is not "decompose failed, use `[task]`": it ends the call.
+
+What it leaves behind, run with a scripted backend and a budget that allows one call, `subgoals=["a", "b"]`:
+
+```text
+OverflowError: planner: budget 1 used | LLM calls sent 1 | last_blocks None
+```
+
+One call went out, the second was refused before it was sent, and `last_blocks` stayed `None`: the book-keeping that `replan` needs is written only when `generate_plan` finishes, so a stopped call leaves the previous plan (or none) in place. The budget is a per-call argument: both methods reset it to `None` when they end, also after an error. `edit_block` is outside them, so it is not budgeted. A global-fallback `replan` plans again with the same budget.
 
 #### How robot_agent uses it
 
-This part is about robot_agent, a separate repository. The behaviour tree is **in robot_agent, not in embodiplan**, and embodiplan's code did not change for it. The full rules are in robot_agent `docs/bt_goal.md` (section "Mixed") and `docs/options.md` (section `bt_goal`).
+This part is about robot_agent, a separate repository. The behaviour tree is **in robot_agent, not in embodiplan**, and embodiplan's code does not contain it. The full rules are in robot_agent `docs/bt_goal.md` (section "Mixed") and `docs/options.md` (section `bt_goal`).
 
 - robot_agent passes one sub-goal per goal it understood (`AssistLoop._subgoals` in `robot_agent/core/planning/assist_loop.py`). With the option `person_goals`, a goal of a template kind (go, say, deliver) is passed as a fixed block `(text, steps)` (`_lab_subgoals`), so SAGE never rewrites an exact sentence.
-- New option `bt_goal`, key `mixed`. It is on by default, and a robot that declares no behaviour trees gets no change. Goals whose kind has a declared behaviour tree are run by the tree and never reach SAGE. Neighbouring goals without a tree are given to SAGE together in ONE call. That call happens when the run reaches them, so SAGE plans from the world as it is then, after the trees before it have acted. The call goes through `plan_goals(run, goals)` in `robot_agent/core/planning/option_services.py`, which sets the run's goals to that part and then calls `_plan_call(..., subgoals=lp._subgoals(run))`.
+- The option `bt_goal`, key `mixed`, is on by default in robot_agent, and a robot that declares no behaviour trees gets no change. Goals whose kind has a declared behaviour tree are run by the tree and never reach SAGE. Neighbouring goals without a tree are given to SAGE together in ONE call. That call happens when the run reaches them, so SAGE plans from the world as it is then, after the trees before it have acted. The call goes through `plan_goals(run, goals)` in `robot_agent/core/planning/option_services.py`, which sets the run's goals to that part and then calls `_plan_call(..., subgoals=lp._subgoals(run))`.
 - If a step has no way left, the goals that are left (this part and every goal after it, trees included) go to the SAGE replan once.
 - With no goal that has a tree, SAGE plans the whole run as when the key is off.
 
@@ -204,7 +230,7 @@ This part is about robot_agent, a separate repository. The behaviour tree is **i
 
 ### replan
 
-SAGE does not repeat the full task after a failure. It finds the sub-goal the failed step belongs to and asks the LLM only for the rest of that sub-goal, from the believed state. That is covered, with the editing API and `record_episode`, on [SAGE, repair and editing](sage-repair.md).
+SAGE does not repeat the full task after a failure. It finds the sub-goal the failed step belongs to and asks the LLM only for the rest of that sub-goal, from the believed state. That is covered, with the editing API and `record_episode`, on [SAGE, repair and editing](sage-repair.md). A fixed block is not protected from `replan`: see that page.
 
 ### Example (scripted)
 
@@ -319,9 +345,9 @@ Task takes place in the kitchen. Key objects involved: Mug, CoffeeMachine. Plan 
 
 ## A robot's own action list
 
-By default the prompts describe a household robot with the 14 actions. With `actions=[...]` and `robot_description=...` the constructor calls `system_prompts(_DEFAULT_SYSTEM, actions, robot_description)` once and stores the four rewritten prompts in `self.system_prompts` (`sage.py:384-386`). Each entry is a bare name or a line `"Name <arg>: what it does"`.
+By default the prompts describe a household robot with the 14 actions. With `actions=[...]` and `robot_description=...` the constructor calls `system_prompts(_DEFAULT_SYSTEM, actions, robot_description)` once and stores the four rewritten prompts in `self.system_prompts` ([`sage.py:405-407`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/sage.py#L405-L407)). Each entry is a bare name or a line `"Name <arg>: what it does"`.
 
-`system_prompts` works by exact string replacement of the default action list, `STEP_SCHEMA` and `JSON_EXAMPLE` inside each prompt; the decompose prompt also gets a line naming the allowed actions; a description replaces the opening line of each prompt ([`robot_prompt.py:144-164`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/robot_prompt.py#L144-L164)). Run offline:
+`system_prompts` works by exact string replacement of the default action list, `STEP_SCHEMA` and `JSON_EXAMPLE` inside each prompt; the decompose prompt also gets a line naming the allowed actions; a description replaces the opening line of each prompt ([`robot_prompt.py:144-164`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/robot_prompt.py#L144-L164)). Run offline:
 
 ```python
 p = SAGEPlanner(host="http://localhost:11434", model="scripted", enable_memory=False,
@@ -346,7 +372,7 @@ Return ONLY valid JSON — no markdown, no explanation:
 The expand prompt for the same robot lists only `MoveTo <place>: drive there` and `Say <text>: say it`, keeps only the `MoveTo` rule, and ends with the example `{"action": "MoveTo", "object": "Kitchen"}, {"action": "Say", "object": "Target"}`. Without `actions` and `robot_description`, `system_prompts == _DEFAULT_SYSTEM` is `True`, and the four defaults joined by `\n=====\n` equal `tests/data/sage_prompts_0_2_3.txt` byte for byte (`tests/test_robot_prompt.py`, test `test_defaults_byte_identical_to_0_2_3`).
 
 !!! warning "The gate does not know your actions"
-    `SAGEPlanner._simulate` passes only the capabilities to the action model, not `actions` (`sage.py:426-428`). The gate therefore reports any name outside the 14 default actions as `unknown_action`. Run with scripted replies, a robot with `actions=["MoveTo <place>: ...", "Say <text>: ..."]` planned `MoveTo Door, Say Hello`. The gate reported `unknown_action` for `Say Hello` (violation index 1, counted from 0), a refine was called, and the scripted refine `{"steps": []}` was accepted (an empty plan has no violations). The result was `steps=0`, `llm_calls=3`, `refines=1`. If your robot has actions outside the defaults, set `enable_verifier=False` or use `safe_refine=True`, and do not rely on the gate for them.
+    `SAGEPlanner._simulate` passes only the capabilities to the action model, not `actions` ([`sage.py:458-460`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/sage.py#L458-L460)). The gate therefore reports any name outside the 14 default actions as `unknown_action`. Run with scripted replies, a robot with `actions=["MoveTo <place>: ...", "Say <text>: ..."]` planned `MoveTo Door, Say Hello`. The gate reported `unknown_action` for `Say Hello` (violation index 1, counted from 0), a refine was called, and the scripted refine `{"steps": []}` was accepted (an empty plan has no violations). The result was `steps=0`, `llm_calls=3`, `refines=1`. If your robot has actions outside the defaults, set `enable_verifier=False` or use `safe_refine=True`, and do not rely on the gate for them.
 
 The robot-prompt rewrite is also fragile in one way: it replaces exact text, so changing `STEP_SCHEMA` in `base.py` would make it silently change nothing. The golden-file test guards the default case.
 
@@ -360,15 +386,22 @@ The robot-prompt rewrite is also fragile in one way: it replaces exact text, so 
 | Many tiny blocks | the model answered sub-goals as words | handled by `_parse_subgoals` for names in the action list; for a robot's own actions pass `actions=` |
 | Prompts go to an unexpected server | default `host` | pass `host=` |
 | Robot-specific action names rejected | see the warning above | `enable_verifier=False` |
+| `generate_plan` raises the budget's exception | the caller's budget refused the next call | the plan was not built and `last_blocks` is unchanged; give a larger budget or catch it |
+| A fixed block's steps look wrong | they are the caller's and are not checked | check them with `simulate` before passing them |
 
 Problems met in real use and fixed are listed in `CHANGELOG.md`: word-split sub-goals (0.2.5), a gate that started from an empty state (0.2.2), and an unverified refine used as is (0.2.2).
 
 ## Tests
 
+Run in this worktree with `PYTHONPATH=<repo> python -m pytest tests -q -p no:warnings` (code commit `76da520`): **104 passed** (all of `tests/`).
+
+- `tests/test_sage_v2_hooks.py`: seven tests for the 0.2.6 and 0.2.7 inputs. Given sub-goals skip decompose and expand once each, and each expand prompt says the earlier ones are done; without `subgoals` nothing changes; the budget is taken per call and stops between calls (a budget of 1 sends one call, then raises `OverflowError`), and `_budget` is `None` after the call; a release action (`Handover`) empties the hand in the action model; `parse_steps` reads numbers as text; a fixed sub-goal keeps the caller's steps, costs no call, and `edit_block` returns it unchanged.
 - `tests/test_sage_subgoals.py`: five tests for `_parse_subgoals` (phrases, words joined, step-shaped items, no JSON, robot action names).
 - `tests/test_sage_repair.py`: scripted-planner tests, including `test_worse_refine_is_dropped` (a worse refine is dropped, an equal-or-better one is kept) and the repair and recording tests used by the [repair page](sage-repair.md).
 - `tests/test_robot_prompt.py`: five tests, including the byte-identity check against `tests/data/sage_prompts_0_2_3.txt`.
-- `tests/test_memory_tools.py`: the memory pool tools. `pytest` is not installed here, so none of these tests was run for this page.
+- `tests/test_memory_tools.py`: the memory pool tools.
+
+No test covers `replan` on a fixed block or a budget stop inside `replan`; the notes on them in these pages come from small scripted runs.
 
 ## Next
 

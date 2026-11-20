@@ -1,6 +1,6 @@
 ---
 sources: [embodiplan/__init__.py, embodiplan/base.py, pyproject.toml, tests/test_sage_repair.py, tests/test_action_model.py]
-verified_at: a69064255c69
+verified_at: 76da520
 ---
 
 # Getting started
@@ -14,10 +14,10 @@ This page takes you from nothing to a first plan. You install the package, pick 
     - You can run and test everything offline by replacing `_chat`.
 
 !!! code "Where in the code"
-    - [`__init__.py:113-140`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/__init__.py#L113-L140): `get`
-    - [`base.py:23`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/base.py#L23): `DEFAULT_HOST`
-    - [`base.py:260-270`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/base.py#L260-L270): the provider dispatch and its `ValueError`
-    - [`pyproject.toml`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/pyproject.toml): version, Python and dependencies
+    - [`__init__.py:113-140`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/__init__.py#L113-L140): `get`
+    - [`base.py:23`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/base.py#L23): `DEFAULT_HOST`
+    - [`base.py:260-270`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/base.py#L260-L270): the provider dispatch and its `ValueError`
+    - [`pyproject.toml`](https://github.com/mtbui2010/embodiplan/blob/76da520/pyproject.toml): version, Python and dependencies
 
 ```mermaid
 flowchart LR
@@ -29,7 +29,7 @@ flowchart LR
 
 ## 1. Install
 
-`pyproject.toml` names the package `embodiplan` (version `0.2.5`) and requires Python `>=3.10`. The core dependencies are `ollama>=0.2.0` and `requests>=2.31.0`.
+`pyproject.toml` names the package `embodiplan` (version `0.2.7`) and requires Python `>=3.10`. The core dependencies are `ollama>=0.2.0` and `requests>=2.31.0`.
 
 === "From a clone"
 
@@ -93,7 +93,7 @@ For OpenAI or Gemini, add `provider="openai", api_key="sk-..."` (a placeholder; 
 
 ## 4. The same call, offline
 
-Every planner calls the model through one method, `self._chat(messages, temperature)`. If you replace it with a function that returns fixed text, the planner's own code (prompt building, parsing, metrics) still runs and nothing goes over the network. This is the recipe used by the repository's tests ([`tests/test_sage_repair.py:17-35`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/tests/test_sage_repair.py#L17-L35)).
+Every planner calls the model through one method, `self._chat(messages, temperature)`. If you replace it with a function that returns fixed text, the planner's own code (prompt building, parsing, metrics) still runs and nothing goes over the network. This is the recipe used by the repository's tests ([`tests/test_sage_repair.py:17-35`](https://github.com/mtbui2010/embodiplan/blob/76da520/tests/test_sage_repair.py#L17-L35)).
 
 ```python
 from embodiplan import get

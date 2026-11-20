@@ -1,6 +1,6 @@
 ---
 sources: [embodiplan/direct.py, embodiplan/cot.py, embodiplan/few_shot.py, embodiplan/few_shot_examples.py, embodiplan/base.py, embodiplan/__init__.py, docs/usage.md, README.md]
-verified_at: a69064255c69
+verified_at: 76da520
 ---
 
 # Single-call (Direct, CoT, Few-Shot CoT)
@@ -33,15 +33,15 @@ A single-call planner asks the LLM once and turns the reply into a plan. It does
 | `metrics.extra` | `{}` | `{"reasoning"}` | `{"reasoning", "fallback_used"}` |
 | keeps error text on failure | no | yes | yes |
 
-All three are built with `host, model, provider, api_key` and nothing else ([`BasePlanner.__init__`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/base.py#L517-L528)). The shorthand functions `embodiplan.direct()`, `cot()` and `few_shot()` do the same ([`__init__.py`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/__init__.py#L152-L167)).
+All three are built with `host, model, provider, api_key` and nothing else ([`BasePlanner.__init__`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/base.py#L537-L548)). The shorthand functions `embodiplan.direct()`, `cot()` and `few_shot()` do the same ([`__init__.py`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/__init__.py#L152-L167)).
 
 !!! warning "The default host is a remote server"
     A planner built without `host=` sends its prompts to `http://ollama.aistations.org` ([`base.py:23`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/base.py#L23)). For a local server pass `host="http://localhost:11434"`. The backends are `ollama`, `openai` and `gemini`; `provider="anthropic"` raises `ValueError`.
 
 Two things are the same for all three planners:
 
-- The user message starts with `_context_str`: the request, the observation text, and at most the first 30 visible objects ([`base.py:584`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/base.py#L584-L590)). Objects after the 30th are not shown to the LLM.
-- `replan` builds its user message with `_replan_context` (task, completed steps, failed step and reason, observation, visible objects) and ends with "Generate ONLY the remaining steps." ([`base.py:592`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/base.py#L592-L605)). See [Replanning](../concepts/replanning.md).
+- The user message starts with `_context_str`: the request, the observation text, and at most the first 30 visible objects ([`base.py:604`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/base.py#L604-L610)). Objects after the 30th are not shown to the LLM.
+- `replan` builds its user message with `_replan_context` (task, completed steps, failed step and reason, observation, visible objects) and ends with "Generate ONLY the remaining steps." ([`base.py:612`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/base.py#L612-L625)). See [Replanning](../concepts/replanning.md).
 
 Every example below was run offline. Only the LLM text is fixed; the planner code runs as written. All outputs are shown **with a scripted LLM reply**. The token counts (100 and 20) are typed into the fake, not measured. This helper is used by all three examples:
 

@@ -1,6 +1,6 @@
 ---
 sources: [embodiplan/base.py, embodiplan/__init__.py, embodiplan/my_planner.py, embodiplan/llm_router.py, embodiplan/sage.py, tests/test_action_model.py]
-verified_at: a69064255c69
+verified_at: 76da520
 ---
 
 # Planner interface and registry
@@ -14,14 +14,14 @@ This page describes the contract that every planner in embodiplan follows, and t
     - Providers are `ollama`, `openai` and `gemini`. `provider="anthropic"` is not supported: `LLMBackend.chat` raises `ValueError`, but a planner catches it and returns an empty plan (see [Known pitfalls](../pitfalls.md)).
 
 !!! code "Where in the code"
-    - [`embodiplan/base.py`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/base.py#L506-L605): `BasePlanner`
-    - [`embodiplan/base.py`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/base.py#L144-L181): `PlanMetrics`
-    - [`embodiplan/base.py`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/base.py#L475-L500): `parse_steps`
-    - [`embodiplan/base.py`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/base.py#L187-L270): `LLMBackend`
-    - [`embodiplan/__init__.py`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/__init__.py#L98-L140): `REGISTRY` and `get`
+    - [`embodiplan/base.py`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/base.py#L526-L625): `BasePlanner`
+    - [`embodiplan/base.py`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/base.py#L144-L181): `PlanMetrics`
+    - [`embodiplan/base.py`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/base.py#L475-L520): `parse_steps`, `_text_fields`
+    - [`embodiplan/base.py`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/base.py#L187-L270): `LLMBackend`
+    - [`embodiplan/__init__.py`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/__init__.py#L98-L140): `REGISTRY` and `get`
 
 !!! warning "The default host is a remote server"
-    `DEFAULT_HOST` is `http://ollama.aistations.org` ([`base.py:23`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/base.py#L23)). A planner built **without** `host=` sends its prompts to that server. For a local Ollama server, pass `host="http://localhost:11434"`. All examples on this page use a placeholder host (`http://127.0.0.1:1`) and replace `_chat` with a fake, so nothing leaves your machine.
+    `DEFAULT_HOST` is `http://ollama.aistations.org` ([`base.py:23`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/base.py#L23)). A planner built **without** `host=` sends its prompts to that server. For a local Ollama server, pass `host="http://localhost:11434"`. All examples on this page use a placeholder host (`http://127.0.0.1:1`) and replace `_chat` with a fake, so nothing leaves your machine.
 
 ## The contract
 
@@ -38,27 +38,39 @@ flowchart LR
 
 ### `generate_plan`
 
-Signature: [`base.py:562-569`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/base.py#L562-L569).
+Signature: [`base.py:582-589`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/base.py#L582-L589). `SAGEPlanner` adds keyword-only parameters, see [SAGE's extra parameters](#sages-extra-parameters).
 
 | name | type | meaning | example |
 |---|---|---|---|
 | `task` | `str` | the user request | `"make coffee"` |
 | `obs` | `str` | free-text observation. SAGE also reads a `Robot state:` line from it | `"Kitchen."` |
-| `visible_objects` | `list[str]` | object names. Only the **first 30** go into the prompt (`_context_str`, `base.py:585`) | `["Mug", "CoffeeMachine"]` |
+| `visible_objects` | `list[str]` | object names. Only the **first 30** go into the prompt (`_context_str`, `base.py:605`) | `["Mug", "CoffeeMachine"]` |
 
 Returns `(steps, metrics)`. `steps` is a list of dicts, each with at least `action` and `object`. Some planners add `target` and `reason` keys. See [Plan format and metrics](../concepts/plan-format.md).
 
 ### `replan`
 
-Signature: [`base.py:572-581`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/base.py#L572-L581). Inputs: `task, completed, failed_step, failure_reason, obs, visible_objects`. It returns the **remaining** steps only, again as `(steps, PlanMetrics)`. How each planner does this is in [Replanning](../concepts/replanning.md).
+Signature: [`base.py:592-601`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/base.py#L592-L601). Inputs: `task, completed, failed_step, failure_reason, obs, visible_objects`. It returns the **remaining** steps only, again as `(steps, PlanMetrics)`. How each planner does this is in [Replanning](../concepts/replanning.md).
 
 ### Constructor
 
-`BasePlanner.__init__(host=DEFAULT_HOST, model=DEFAULT_MODEL, provider="ollama", api_key="", **kwargs)` ([`base.py:517-528`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/base.py#L517-L528)). The default model is `"llama3.3:70b"`. Extra keyword arguments are accepted and ignored by the base class. It builds one `LLMBackend`. It does not pass a `seed`, so the seed option of `LLMBackend` is not reachable through a planner constructor.
+`BasePlanner.__init__(host=DEFAULT_HOST, model=DEFAULT_MODEL, provider="ollama", api_key="", **kwargs)` ([`base.py:537-548`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/base.py#L537-L548)). The default model is `"llama3.3:70b"`. Extra keyword arguments are accepted and ignored by the base class. It builds one `LLMBackend`. It does not pass a `seed`, so the seed option of `LLMBackend` is not reachable through a planner constructor.
+
+### SAGE's extra parameters
+
+`SAGEPlanner` is the one planner whose methods take more than the base signature ([`sage.py:597-606`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/sage.py#L597-L606) and [`sage.py:807-818`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/sage.py#L807-L818)). All are keyword-only and default to `None`, so a call written for 0.2.5 behaves as before.
+
+| method | parameter | meaning |
+|---|---|---|
+| `generate_plan`, `replan` | `state` | the starting belief (a `SymbolicState` or a duck-typed world); else the `Robot state:` line of `obs`, else empty |
+| `generate_plan` | `subgoals` (0.2.6) | the caller's sub-goals. No decompose call; one expand per sub-goal, and each expand prompt says the earlier sub-goals are done. A sub-goal is a string, a `(text, steps)` tuple or `{"name": text, "steps": steps}`; with steps (0.2.7) the block is **fixed**: no expand, no refine, and `edit_block` returns its steps unchanged |
+| `generate_plan`, `replan` | `budget` (0.2.6) | any object with a `take()` method. `SAGEPlanner._chat` calls `budget.take(what="planner")` before every LLM call; if it raises, SAGE stops between two calls and re-raises **that** exception to the caller (it is not swallowed like an LLM error) |
+
+`SAGEPlanner.fixed_subgoals` is `True` ([`sage.py:356`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/sage.py#L356)); a caller can test it to know the planner accepts steps inside `subgoals`. The budget is kept on the planner only during the call and is reset to `None` afterwards. The behaviour is described in [SAGE, planning](../planners/sage.md). These parameters are not in the `embodiplan.sage()` factory (it has the 10 parameters listed under Failure modes). What the repository's test asserts (`test_fixed_subgoal_keeps_the_callers_steps_and_costs_no_call`, [`tests/test_sage_v2_hooks.py:116-128`](https://github.com/mtbui2010/embodiplan/blob/76da520/tests/test_sage_v2_hooks.py#L116-L128)): with `subgoals=[(A, own_steps), B, {...}]` only `B` costs an LLM call. I did not run it; no pytest result is claimed.
 
 ## `PlanMetrics`
 
-A dataclass filled for every `generate_plan` and `replan` call ([`base.py:144-181`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/base.py#L144-L181)).
+A dataclass filled for every `generate_plan` and `replan` call ([`base.py:144-181`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/base.py#L144-L181)).
 
 | field | type | unit and meaning |
 |---|---|---|
@@ -77,17 +89,17 @@ Two properties: `total_tokens` (input plus output) and `tokens_per_step` (total 
 
 ## `parse_steps`
 
-LLM text is not always clean JSON. `parse_steps(raw)` is the tolerant parser that all planners use ([`base.py:475-500`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/base.py#L475-L500)). It tries, in this order:
+LLM text is not always clean JSON. `parse_steps(raw)` is the tolerant parser that all planners use ([`base.py:491-520`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/base.py#L491-L520)). It tries, in this order:
 
 1. remove code fences, then `json.loads`. A dict gives its `steps` key; a list is returned as is;
 2. the first `[ ... ]` span in the text;
 3. every `{ ... }` object that has an `action` key.
 
-If nothing works it returns `[]`. It never raises.
+If nothing works it returns `[]`. It never raises. Since 0.2.6 the result then goes through `_text_fields` ([`base.py:475-489`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/base.py#L475-L489)): items that are not dicts are dropped, and a non-text `action`, `object` or `target` (a number a model wrote, such as `{"action": "Wait", "object": 5}`) becomes text; `None` stays `None`. Real result (run): `parse_steps('[{"action":"Wait","object":5}, 3, {"action":"Find","object":null}]')` gives `[{'action': 'Wait', 'object': '5'}, {'action': 'Find', 'object': None}]`. Input that is not text is read as an empty string.
 
 ## `LLMBackend` and `_chat`
 
-`LLMBackend` sends the messages to the chosen provider ([`base.py:187-270`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/base.py#L187-L270)). `BasePlanner._chat(messages, temperature=0.2)` is the only method planners call. It returns `(content, input_tokens, output_tokens)` ([`base.py:530-551`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/base.py#L530-L551)).
+`LLMBackend` sends the messages to the chosen provider ([`base.py:187-270`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/base.py#L187-L270)). `BasePlanner._chat(messages, temperature=0.2)` is the only method planners call. It returns `(content, input_tokens, output_tokens)` ([`base.py:550-571`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/base.py#L550-L571)). `SAGEPlanner` overrides `_chat` to take a caller's budget first (see [SAGE's extra parameters](#sages-extra-parameters)).
 
 | provider | API key | host used |
 |---|---|---|
@@ -95,10 +107,10 @@ If nothing works it returns `[]`. It never raises.
 | `openai` | `api_key=`, else env `OPENAI_API_KEY` | fixed OpenAI URL |
 | `gemini` | `api_key=`, else env `GEMINI_API_KEY` | fixed Gemini URL |
 
-`provider="anthropic"` is **not supported**. `LLMBackend.chat` raises `ValueError` ([`base.py:270`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/base.py#L270)), but the planners catch the exception, so `generate_plan` returns an empty plan with `parse_ok=False` and no exception (see [Known pitfalls](../pitfalls.md)). Some docstrings in `base.py` and the README say otherwise; they are wrong. The details (host rules, timeouts, token counting) are in [LLM calls and cost](../concepts/llm-calls.md).
+`provider="anthropic"` is **not supported**. `LLMBackend.chat` raises `ValueError` ([`base.py:270`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/base.py#L270)), but the planners catch the exception, so `generate_plan` returns an empty plan with `parse_ok=False` and no exception (see [Known pitfalls](../pitfalls.md)). Some docstrings in `base.py` and the README say otherwise; they are wrong. The details (host rules, timeouts, token counting) are in [LLM calls and cost](../concepts/llm-calls.md).
 
 !!! warning "`_chat` never swallows errors"
-    `_chat` re-raises every exception. It has a list of "fatal" keywords, but both branches execute `raise`, so the list has no effect ([`base.py:536-551`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/base.py#L536-L551)). Each planner decides what to do with the error. Some return `[]` and drop the message. See each planner page.
+    `_chat` re-raises every exception. It has a list of "fatal" keywords, but both branches execute `raise`, so the list has no effect ([`base.py:556-571`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/base.py#L556-L571)). Each planner decides what to do with the error. Some return `[]` and drop the message. See each planner page.
 
 ## Write a planner of your own
 
@@ -140,7 +152,7 @@ The reply was prose with two bare objects, so step 3 of `parse_steps` rescued bo
 
 ## The registry
 
-`REGISTRY` is a dict from name to class ([`__init__.py:98-110`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/__init__.py#L98-L110)). It has 11 keys:
+`REGISTRY` is a dict from name to class ([`__init__.py:98-110`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/__init__.py#L98-L110)). It has 11 keys:
 
 | key | class | `.name` of the class |
 |---|---|---|
@@ -156,11 +168,11 @@ The reply was prose with two bare objects, so step 3 of `parse_steps` rescued bo
 | `"LLM+P"` | `LLMPPlanner` | as key |
 | `"SayCan"` | `SayCanPlanner` | as key |
 
-The last column was checked by running `cls.name` for every key. Only one differs, and it is set at [`my_planner.py:142`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/my_planner.py#L142). So `metrics.method` for that planner differs from its registry key.
+The last column was checked by running `cls.name` for every key. Only one differs, and it is set at [`my_planner.py:142`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/my_planner.py#L142). So `metrics.method` for that planner differs from its registry key.
 
 The old name `"GRACE"` is an alias of `"SAGE"`. It resolves on lookup but is not listed when you iterate.
 
-`get(name, host=DEFAULT_HOST, model=DEFAULT_MODEL, **kwargs)` ([`__init__.py:113-140`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/__init__.py#L113-L140)) looks up the class and calls it with `host`, `model` and your keyword arguments. `list_methods()` returns name, class name and description for each key.
+`get(name, host=DEFAULT_HOST, model=DEFAULT_MODEL, **kwargs)` ([`__init__.py:113-140`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/__init__.py#L113-L140)) looks up the class and calls it with `host`, `model` and your keyword arguments. `list_methods()` returns name, class name and description for each key.
 
 Real output, run offline:
 
@@ -185,17 +197,17 @@ The third line shows the default host in action: a planner built without `host=`
 
 ### Shorthand factories
 
-For 10 names the package also exports a lowercase function: `direct`, `cot`, `few_shot`, `self_refine`, `react`, `hierarchical`, `hierarchical_few_shot`, `llm_router`, `sage`, and `grace` (an alias of `sage`) ([`__init__.py:152-252`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/__init__.py#L152-L252)). `LLM+P` and `SayCan` have no factory; use `get("LLM+P")` or the class.
+For 10 names the package also exports a lowercase function: `direct`, `cot`, `few_shot`, `self_refine`, `react`, `hierarchical`, `hierarchical_few_shot`, `llm_router`, `sage`, and `grace` (an alias of `sage`) ([`__init__.py:152-252`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/__init__.py#L152-L252)). `LLM+P` and `SayCan` have no factory; use `get("LLM+P")` or the class.
 
 ## Failure modes
 
 - **Name shadowing.** `from embodiplan import cot` gives the factory *function* (checked: `type(embodiplan.cot)` is `function`, defined in module `embodiplan`). The same holds for `direct, few_shot, self_refine, react, hierarchical, llm_router, sage`. To reach the module use `from embodiplan.cot import CoTPlanner` or `importlib.import_module("embodiplan.cot")`.
-- **`llm_router(anthropic_api_key=...)`.** The factory passes this keyword on, but `LLMRouterPlanner.__init__` swallows it in `**kwargs` ([`llm_router.py:129-139`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/llm_router.py#L129-L139)). Any `verifier_backend` other than `"gemini"`, including `"anthropic"`, takes the OpenAI branch ([`llm_router.py:148-162`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/llm_router.py#L148-L162)).
-- **`embodiplan.sage()` has 10 parameters** (`host, model, provider, api_key, top_k, max_refines, gt_path, live_path, use_chroma, chroma_path`). For `capabilities`, `actions`, `robot_description`, `leave_one_out` or the `enable_*` switches, build `SAGEPlanner(...)` directly ([`sage.py:342-414`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/sage.py#L342-L414)).
-- **The `get` docstring lists only 7 names** ([`__init__.py:122-124`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/__init__.py#L122-L124)). The registry has 11.
+- **`llm_router(anthropic_api_key=...)`.** The factory passes this keyword on, but `LLMRouterPlanner.__init__` swallows it in `**kwargs` ([`llm_router.py:129-139`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/llm_router.py#L129-L139)). Any `verifier_backend` other than `"gemini"`, including `"anthropic"`, takes the OpenAI branch ([`llm_router.py:148-162`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/llm_router.py#L148-L162)).
+- **`embodiplan.sage()` has 10 parameters** (`host, model, provider, api_key, top_k, max_refines, gt_path, live_path, use_chroma, chroma_path`). For `capabilities`, `actions`, `robot_description`, `leave_one_out` or the `enable_*` switches, build `SAGEPlanner(...)` directly ([`sage.py:363-435`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/sage.py#L363-L435)).
+- **The `get` docstring lists only 7 names** ([`__init__.py:122-124`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/__init__.py#L122-L124)). The registry has 11.
 - **Wrong docstrings about Anthropic.** Docstrings in `base.py` and `__init__.py` (and the README) mention Anthropic or Claude as a backend. The code supports `gemini` and not `anthropic`.
 - **Objects beyond 30 are cut** from prompts without a warning.
 
 ## Tests
 
-There is no direct test of `parse_steps` or `LLMBackend`. The SAGE tests call through `BasePlanner`. `tests/test_action_model.py` checks the version string and the public names ([`tests/test_action_model.py:210-214`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/tests/test_action_model.py#L210-L214)). `pytest` was not available when this page was written, so no test result is claimed.
+There is no direct test of `parse_steps` or `LLMBackend`. The SAGE tests call through `BasePlanner`. `tests/test_sage_v2_hooks.py` covers the SAGE parameters above and the numbers-as-text parsing. `tests/test_action_model.py` checks the version string and the public names ([`tests/test_action_model.py:210-214`](https://github.com/mtbui2010/embodiplan/blob/76da520/tests/test_action_model.py#L210-L214)). `pytest` was not available when this page was written, so no test result is claimed.

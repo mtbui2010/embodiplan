@@ -1,6 +1,6 @@
 ---
 sources: [embodiplan/base.py, embodiplan/robot_prompt.py, embodiplan/sage.py, embodiplan/action_model.py, tests/test_robot_prompt.py, tests/data/sage_prompts_0_2_3.txt]
-verified_at: a69064255c69
+verified_at: 76da520
 ---
 
 # Prompt building
@@ -16,7 +16,7 @@ This page shows the three text fragments that almost every planner puts in its s
 !!! code "Where in the code"
     - [`embodiplan/base.py` L53-L138](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/base.py#L53-L138): `ROBOT_ACTIONS`, `ACTIONS_STR`, `STEP_SCHEMA`, `JSON_EXAMPLE`.
     - [`embodiplan/robot_prompt.py`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/robot_prompt.py): `system_prompts` [L144-L164](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/robot_prompt.py#L144-L164).
-    - [`embodiplan/sage.py` L67-L119](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/sage.py#L67-L119): the four default prompts and `_DEFAULT_SYSTEM`.
+    - [`embodiplan/sage.py` L67-L119](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/sage.py#L67-L119): the four default prompts and `_DEFAULT_SYSTEM`.
 
 ## The three fragments in `base.py`
 
@@ -52,7 +52,7 @@ By default SAGE plans for a generic household robot. A client that knows its rob
 - `actions`: a list of entries, each a bare name (`"MoveTo"`) or a line that starts with the name (`"MoveTo <place>: drive there"`). The name is the first word.
 - `robot_description`: one or two sentences about the body.
 
-`SAGEPlanner.__init__` calls `system_prompts(_DEFAULT_SYSTEM, self.actions, robot_description)` once and stores the result in `self.system_prompts` ([`sage.py` L381-L386](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/sage.py#L381-L386)). Then `_system(key)` reads from it.
+`SAGEPlanner.__init__` calls `system_prompts(_DEFAULT_SYSTEM, self.actions, robot_description)` once and stores the result in `self.system_prompts` ([`sage.py` L402-L407](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/sage.py#L402-L407)). Then `_system(key)` reads from it.
 
 ```mermaid
 flowchart LR
@@ -169,7 +169,7 @@ The golden file [`tests/data/sage_prompts_0_2_3.txt`](https://github.com/mtbui20
     `JSON_EXAMPLE` teaches `Open Fridge`, `Pick Apple`, then `Close Fridge` while the apple is still in hand. The default body has one hand, so [`simulate`](action-model.md) reports `hand_full` at step 7. The "Object inside container" sequence in `STEP_SCHEMA` has the same shape. Pass `capabilities={"hands": 2}` to allow it. Details and a run are on the [Action model](action-model.md) page.
 
 - **Two copies of the rule text.** `system_prompts` finds the fragments by their full text, and `step_schema` rebuilds the schema from its own copy of the rule text (`_RULES`, `_SCHEMA_HEAD` and others in `robot_prompt.py`). If `STEP_SCHEMA` in `base.py` is edited, the default prompts change with it, but a robot-specific schema keeps the old rule text. The golden test covers only the default path. This reading is from the code and was not run.
-- **The gate does not know the robot's action names.** SAGE's `_simulate` calls `simulate(plan, capabilities=...)` and does not pass `actions=` ([`sage.py` L426-L428](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/sage.py#L426-L428)). Run: a planner built with `actions=["MoveTo", "Say <text>: say it"]` and asked to simulate `[{"action": "Say", "object": "hi"}]` returns `ok False` with the code `unknown_action`. A robot with actions outside the 14 default names must handle this itself.
+- **The gate does not know the robot's action names.** SAGE's `_simulate` calls `simulate(plan, capabilities=...)` and does not pass `actions=` ([`sage.py` L458-L460](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/sage.py#L458-L460)). Run: a planner built with `actions=["MoveTo", "Say <text>: say it"]` and asked to simulate `[{"action": "Say", "object": "hi"}]` returns `ok False` with the code `unknown_action`. A robot with actions outside the 14 default names must handle this itself.
 - **Only SAGE is rewritten.** Other planners always use the default fragments.
 - **No match, no change.** If a default prompt did not contain a fragment, the replace does nothing and no error is raised.
 - **Empty list.** `actions=[]` is falsy, so the prompts are not rewritten (only the description is applied). `actions=None` also leaves them unchanged.

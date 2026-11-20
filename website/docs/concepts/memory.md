@@ -1,6 +1,6 @@
 ---
 sources: [embodiplan/memory_retriever.py, embodiplan/memory_tools.py, embodiplan/sage.py, embodiplan/action_model.py, embodiplan/verifier.py, embodiplan/data/eval_dataset_gt.json, eval_dataset_gt.json, docs/memory.md, tests/test_memory_tools.py, tests/test_action_model.py]
-verified_at: a69064255c69
+verified_at: 76da520
 ---
 
 # Retrieval memory (SAGE)
@@ -14,7 +14,7 @@ SAGE shows the LLM a few past plans that look like the new task. This page says 
     - Seed plans are not all valid under SAGE's own rules.
 
 !!! code "Where in the code"
-    [`MemoryRetriever`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/memory_retriever.py#L175-L356) and [`add_episode`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/memory_retriever.py#L228-L255); the caller is [`SAGEPlanner.record_episode`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/sage.py#L987-L1019).
+    [`MemoryRetriever`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/memory_retriever.py#L175-L356) and [`add_episode`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/memory_retriever.py#L228-L255); the caller is [`SAGEPlanner.record_episode`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/sage.py#L1075-L1107).
 
 ## The idea
 
@@ -43,7 +43,7 @@ For evaluation, `leave_one_out=True` removes any example whose task is the query
 
 ## What gets recorded
 
-`record_episode` writes only when you say the run succeeded and the plan passes the [action model](../reference/action-model.md) from its start belief. Details are on [SAGE, repair and editing](../planners/sage-repair.md). One line of the live file looks like this (real output, plan recorded through `record_episode`; `ts` is a time stamp):
+`record_episode` writes only when you say the run succeeded and the plan passes the [action model](../reference/action-model.md) from its start belief. Details are on [SAGE, repair and editing](../planners/sage-repair.md). The check is on the whole plan, so a plan that contains a caller's fixed block (see [SAGE, planning](../planners/sage.md#when-the-caller-gives-the-sub-goals)) is stored like any other when it verifies: the gate does not skip those steps here. In `generate_plan`, retrieval uses the task text; the sub-goals a caller gives do not change which examples are found. One line of the live file looks like this (real output, plan recorded through `record_episode`; `ts` is a time stamp):
 
 ```json
 {"verified": true, "action_model": "1.0", "evidence": "goal_observation", "init_state": {"arrived": null, "found": null, "holding": null, "opened": [], "on": []}, "task": "put the apple on the table", "reasoning": "Recorded from a successful episode.", "plan_text": "{\"steps\": [{\"action\": \"MoveTo\", \"object\": \"Fridge\"}, ...]}", "ts": 1794981850.0456762}
@@ -56,4 +56,4 @@ For evaluation, `leave_one_out=True` removes any example whose task is the query
 
 ## Cleaning a pool
 
-Dropping duplicates, unverified lines or test tasks from a pool is done with `python -m embodiplan.memory_tools clean`. It is described in the repository's [`docs/memory.md`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/docs/memory.md), and is not covered here.
+Dropping duplicates, unverified lines or test tasks from a pool is done with `python -m embodiplan.memory_tools clean`. It is described in the repository's [`docs/memory.md`](https://github.com/mtbui2010/embodiplan/blob/76da520/docs/memory.md), and is not covered here.

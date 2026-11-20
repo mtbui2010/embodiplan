@@ -1,6 +1,6 @@
 ---
 sources: [embodiplan/base.py, embodiplan/__init__.py, embodiplan/action_model.py, embodiplan/verifier.py, embodiplan/memory_retriever.py, embodiplan/robot_prompt.py, pddl/household_domain.pddl, embodiplan/direct.py, embodiplan/cot.py, embodiplan/few_shot.py, embodiplan/few_shot_examples.py, embodiplan/self_refine.py, embodiplan/react.py, embodiplan/hierarchical.py, embodiplan/my_planner.py, embodiplan/llm_router.py, embodiplan/saycan.py, embodiplan/llmp.py, embodiplan/sage.py]
-verified_at: a69064255c69
+verified_at: 76da520
 ---
 
 # Overview and comparison
@@ -14,12 +14,12 @@ embodiplan has 11 planners. They all take a task and a description of the scene,
     - Nothing here ranks the planners by quality or speed. No real model was called while these pages were written.
 
 !!! code "Where in the code"
-    - [`REGISTRY`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/__init__.py#L98-L110): the 11 keys and their classes
-    - [`BasePlanner`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/base.py#L508-L605): the shared interface
+    - [`REGISTRY`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/__init__.py#L98-L110): the 11 keys and their classes
+    - [`BasePlanner`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/base.py#L526-L625): the shared interface
     - Each planner's file is in the table.
 
 !!! warning "The default host is a remote server"
-    A planner built without `host=` sends its prompts to `http://ollama.aistations.org` ([`base.py:23`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/base.py#L23)). For a local server pass `host=` (for example `http://localhost:11434`). The backends are `ollama`, `openai` and `gemini`; `provider="anthropic"` raises `ValueError`.
+    A planner built without `host=` sends its prompts to `http://ollama.aistations.org` ([`base.py:23`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/base.py#L23)). For a local server pass `host=` (for example `http://localhost:11434`). The backends are `ollama`, `openai` and `gemini`; `provider="anthropic"` raises `ValueError`.
 
 ## The families
 
@@ -57,11 +57,11 @@ Calls are the typical count in `generate_plan`, read from the code; `N` is the n
 | `Hierarchical` | `hierarchical.py` | decompose | 1 + N | decompose 0.3, expand 0.2 | `_parse_subgoals`, then `parse_steps` | no | rewrite the task, run the full method again | `subgoals` | [Hierarchical](hierarchical.md#hierarchical) |
 | `Hierarchical Few-Shot` | `my_planner.py` | decompose | 1 + N | decompose 0.3, expand 0.2 | same as Hierarchical | no (examples come from `few_shot_examples.py`) | rewrite the task, run the full method again | `subgoals`, `retrieved_tasks` | [Hierarchical Few-Shot](hierarchical.md#hierarchical-few-shot) |
 | `LLM+P` | `llmp.py` | PDDL | 1 to 2 translate calls, plus 1 if the fallback runs | translate 0.0, fallback 0.2 | extract the PDDL problem, solve, map to steps; fallback uses `parse_steps` | no (a fixed PDDL domain instead) | translate and solve again; fallback if no steps | `llmp_fallback`, `llmp_error`, `llmp_solve_s` (no `llmp_solve_s` on replan) | [LLM+P](llm-p.md) |
-| `SAGE` | `sage.py` | decompose | 1 + N + refines (up to `max_refines` per block, default 1) | decompose 0.3, expand 0.2, refine 0.1 | sub-goals, `parse_steps`, then the symbolic gate | yes, a gate on each expanded block | repair one sub-goal from the believed state (global fallback if no earlier plan) | `subgoals`, `retrieved_tasks`, `refines`, `verifier_rejections`, `subgoal_block_sizes`, `refined_blocks`, `refine_rejected`; local repair has its own keys | [SAGE](sage.md), [repair](sage-repair.md) |
+| `SAGE` | `sage.py` | decompose | 1 + N + refines (up to `max_refines` per block, default 1); with caller sub-goals there is no decompose call, and a fixed block (own steps) costs no expand or refine call | decompose 0.3, expand 0.2, refine 0.1 | sub-goals, `parse_steps`, then the symbolic gate | yes, a gate on each expanded block (not on a fixed block) | repair one sub-goal from the believed state (global fallback if no earlier plan) | `subgoals`, `retrieved_tasks`, `refines`, `verifier_rejections`, `subgoal_block_sizes`, `refined_blocks`, `refine_rejected`; local repair has its own keys | [SAGE](sage.md), [repair](sage-repair.md) |
 
 Notes on the table:
 
-- **Planners built on others.** `LLM Router` holds an inner `DirectPlanner` for its local plan ([`llm_router.py`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/llm_router.py#L146)). SAGE follows the Hierarchical Few-Shot idea (decompose, then expand with retrieved examples) and adds a symbolic gate, live memory and sub-goal repair ([`sage.py` header](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/sage.py#L8-L10)); it does not share the code of `my_planner.py`. A caller can also give SAGE the sub-goals and fixed steps (0.2.6, 0.2.7, newer than the pin): see [When the caller gives the sub-goals](sage.md#when-the-caller-gives-the-sub-goals).
+- **Planners built on others.** `LLM Router` holds an inner `DirectPlanner` for its local plan ([`llm_router.py`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/llm_router.py#L146)). SAGE follows the Hierarchical Few-Shot idea (decompose, then expand with retrieved examples) and adds a symbolic gate, live memory and sub-goal repair ([`sage.py` header](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/sage.py#L8-L10)); it does not share the code of `my_planner.py`. A caller can also give SAGE the sub-goals (0.2.6), fixed steps for some of them (0.2.7), and a budget that is checked before every LLM call (0.2.6): see [SAGE, planning](sage.md) and [the extra parameters](../reference/interface.md#sages-extra-parameters).
 - **Action model.** "Yes" means the planner's code calls the symbolic checker in `verifier.py` or `action_model.py` while it plans. LLM+P does not use it: it has its own PDDL domain in `pddl/household_domain.pddl`. That file and the copy embedded in `llmp.py` are not identical; see [LLM+P](llm-p.md).
 - **Memory.** Only SAGE uses `MemoryRetriever` (seeded from a bundled dataset, plus live episodes); see [Retrieval memory](../concepts/memory.md). Hierarchical Few-Shot picks its 3 examples from the fixed list in `few_shot_examples.py` by word overlap. Few-Shot CoT pastes all 22 examples.
 - **`extra`.** `extra` is not part of `PlanMetrics.to_dict()` ([Plan format and metrics](../concepts/plan-format.md)).

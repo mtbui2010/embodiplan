@@ -1,6 +1,6 @@
 ---
 sources: [embodiplan/base.py, embodiplan/__init__.py, embodiplan/llm_router.py, embodiplan/direct.py, embodiplan/cot.py, embodiplan/few_shot.py, embodiplan/few_shot_examples.py, embodiplan/self_refine.py, embodiplan/react.py, embodiplan/hierarchical.py, embodiplan/my_planner.py, embodiplan/saycan.py, embodiplan/llmp.py, embodiplan/sage.py]
-verified_at: a69064255c69
+verified_at: 76da520
 ---
 
 # LLM calls and cost
@@ -16,7 +16,7 @@ Every planner in embodiplan talks to a language model, and the algorithms differ
 !!! code "Where in the code"
     - [`base.py:187-270`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/base.py#L187-L270): `LLMBackend` (host, key, dispatch)
     - [`base.py:322-421`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/base.py#L322-L421): the Ollama request
-    - [`base.py:530-551`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/base.py#L530-L551): `BasePlanner._chat`
+    - [`base.py:550-571`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/base.py#L550-L571): `BasePlanner._chat`
     - [`base.py:471-472`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/base.py#L471-L472): the token estimate
 
 !!! warning "The default host is a remote server"
@@ -101,7 +101,10 @@ Counts come from reading the code. `N` is the number of sub-goals or steps. Temp
 | LLM Router | local Direct call (1) + 1 verifier call. A skipped verification still counts as a call | local 0.2, verifier 0.1 |
 | SayCan | 1 scoring call per decoded step | 0.0 |
 | LLM+P | 1 to 2 translate calls (`repair_retries=1`), plus 1 fallback call if no plan | translate 0.0, fallback 0.2 |
-| SAGE | 1 decompose + N expand + refine calls (up to `max_refines` per block, default 1) | decompose 0.3, expand 0.2, refine 0.1 |
+| SAGE | 1 decompose + N expand + refine calls (up to `max_refines` per block, default 1). With caller-given `subgoals=` there is no decompose call, and a sub-goal given with its own steps has no expand and no refine call | decompose 0.3, expand 0.2, refine 0.1 |
+
+!!! note "SAGE: a call budget (0.2.7)"
+    `SAGEPlanner.generate_plan(..., budget=)` and `replan(..., budget=)` take an object with a `take()` method. SAGE overrides `_chat`: before every LLM call it runs `budget.take(what="planner")` ([`sage.py:437-447`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/sage.py#L437-L447)). If `take()` raises, SAGE stops between two calls (the sub-goal expand, refine and repair calls included) and the budget's own exception reaches the caller unchanged. With `budget=None` (the default) nothing changes. Replacing `planner._chat` with a fake (recipe below) also skips the budget check, because the check lives inside SAGE's `_chat`.
 
 `replan` uses a similar budget: one call for Direct, CoT and Few-Shot, one repair call (and at most one refine) for SAGE's local repair, and a full re-run for Self-Refine and Hierarchical. See [Replanning](replanning.md).
 

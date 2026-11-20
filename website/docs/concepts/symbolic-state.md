@@ -1,6 +1,6 @@
 ---
 sources: [embodiplan/action_model.py, embodiplan/base.py, embodiplan/sage.py]
-verified_at: a69064255c69
+verified_at: 76da520
 ---
 
 # Symbolic state
@@ -12,12 +12,13 @@ Before a robot runs a plan, you can check it without calling an LLM. embodiplan 
     - Each action has preconditions (`check`) and effects (`apply`). `simulate` runs them over a whole plan.
     - Rule breaks are typed codes such as `hand_full`. Errors make a plan fail. Warnings do not.
     - The robot body matters: with one hand (the default) the Fridge plan below fails. With two hands it passes.
+    - The hand empties through `Place`, `PutIn`, or a robot action named in `Capabilities.release_actions` (such as `Handover`).
     - The model has no idea what is inside a container.
 
 !!! code "Where in the code"
-    - [`Capabilities`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/action_model.py#L56-L80) and [`SymbolicState`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/action_model.py#L98-L134)
-    - [`check`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/action_model.py#L260-L367), [`apply`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/action_model.py#L378-L416), [`simulate`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/action_model.py#L422-L481)
-    - SAGE calls it through its own [`_simulate`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/sage.py#L426-L428), which adds the planner's capabilities.
+    - [`Capabilities`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/action_model.py#L56-L85) and [`SymbolicState`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/action_model.py#L104-L139)
+    - [`check`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/action_model.py#L266-L373), [`apply`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/action_model.py#L384-L427), [`simulate`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/action_model.py#L433-L492)
+    - SAGE calls it through its own [`_simulate`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/sage.py#L458-L460), which adds the planner's capabilities.
 
 ## The state
 
@@ -35,7 +36,7 @@ The model is in the style of classic STRIPS planning: a state, preconditions tha
 
 ## Preconditions and effects
 
-`check(step, world)` returns a list of violations and does not change the world. `apply(step, world)` returns a **copy** of the world after the step (pass `inplace=True` to change it). Main rules, read from the code:
+`check(step, world)` returns a list of violations and does not change the world. `apply(step, world)` returns a **copy** of the world after the step (pass `inplace=True` to change it; pass `capabilities=` to let a release action empty the hand, see below). Main rules, read from the code:
 
 | action | precondition (error code if broken) | effect |
 |---|---|---|
@@ -55,13 +56,17 @@ Two more codes: `unknown_action` (name not in `ROBOT_ACTIONS`, after alias mappi
 ## Capabilities: the robot's body
 
 ```python
-Capabilities(hands=1, find_reaches=True)
+Capabilities(hands=1, find_reaches=True, release_actions=frozenset())
 ```
 
 - `hands`: with fewer than 2 hands, `Open` and `Close` need the hand to be empty. This is the `hand_full` rule.
 - `find_reaches`: `True` means a `Find` brings the target within reach, as in AI2-THOR. `False` is for a robot whose `Find` only looks.
 
-You can pass a `Capabilities` object or a dict. `hands` can be a number or a list (its length is used); `arms` is read if `hands` is missing. Running `Capabilities.from_any({"hands": ["left", "right"]})` printed `Capabilities(hands=2, find_reaches=True)`. The default is one hand.
+- `release_actions`: names of robot actions that **release the held object**, for example `Handover` (a manifest action whose effects include `hand_empty()`). The default is empty, so nothing changes for other callers.
+
+The hand also empties through a release action. `Place` and `PutIn` clear `holding` by their own effect. A robot-specific action such as `Handover` has no effect in the table above; if its name is in `release_actions`, `apply` sets `holding = None` and nothing else changes, and `simulate` does the same because it hands its `capabilities` to `apply`. Without the name the hand stays full. Added in 0.2.6. Run (at 0.2.7), one hand, `actions=["MoveTo","Find","Pick","Handover"]`, plan `Find Mug, Pick Mug, Handover kid, Find Cup, Pick Cup`: without `release_actions` it fails at step 5 with `already_holding`; with `{"release_actions": ["Handover"]}` it passes and the final `holding` is `Cup`. The action must still be in the vocabulary (`actions=`); `check` does not read `release_actions`.
+
+You can pass a `Capabilities` object or a dict. `hands` can be a number or a list (its length is used); `arms` is read if `hands` is missing. Running `Capabilities.from_any({"hands": ["left", "right"]})` printed `Capabilities(hands=2, find_reaches=True, release_actions=frozenset())` (at 0.2.7). The default is one hand.
 
 ```mermaid
 flowchart LR

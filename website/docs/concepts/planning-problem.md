@@ -1,6 +1,6 @@
 ---
 sources: [embodiplan/base.py, embodiplan/data/eval_dataset_gt.json]
-verified_at: a69064255c69
+verified_at: 76da520
 ---
 
 # The planning problem
@@ -13,7 +13,7 @@ This page explains what task planning means for a household robot, what the thre
     - A language model writes plans well but can break simple rules. A small symbolic check catches that without a model call.
 
 !!! code "Where in the code"
-    - [`base.py:584-590`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/base.py#L584-L590): `_context_str`, the text a planner sends as the situation
+    - [`base.py:604-610`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/base.py#L604-L610): `_context_str`, the text a planner sends as the situation
     - [`embodiplan/data/eval_dataset_gt.json`](https://github.com/mtbui2010/embodiplan/blob/a69064255c69/embodiplan/data/eval_dataset_gt.json): the bundled tasks
 
 ## What task planning is
