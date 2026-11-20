@@ -65,7 +65,6 @@ Notes on the table:
 - **Action model.** "Yes" means the planner's code calls the symbolic checker in `verifier.py` or `action_model.py` while it plans. LLM+P does not use it: it has its own PDDL domain in `pddl/household_domain.pddl`. That file and the copy embedded in `llmp.py` are not identical; see [LLM+P](llm-p.md).
 - **Memory.** Only SAGE uses `MemoryRetriever` (seeded from a bundled dataset, plus live episodes); see [Retrieval memory](../concepts/memory.md). Hierarchical Few-Shot picks its 3 examples from the fixed list in `few_shot_examples.py` by word overlap. Few-Shot CoT pastes all 22 examples.
 - **`extra`.** `extra` is not part of `PlanMetrics.to_dict()` ([Plan format and metrics](../concepts/plan-format.md)).
-- **Aliases.** `"GRACE"` is an alias of `"SAGE"` in the registry.
 - **Run status.** The classical solve of LLM+P and a real verifier call of LLM Router were not run; see their pages.
 
 ## Which planner when

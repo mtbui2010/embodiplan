@@ -32,7 +32,7 @@ planner = embodiplan.react(model="llama3.2", max_steps=15)
 | `"Hierarchical"` | `HierarchicalPlanner` | Sub-goals → action expansion |
 | `"LLM Router"` | `LLMRouterPlanner` | Local generate + external API verify |
 | `"Hierarchical Few-Shot"` | `HierarchicalFewShotPlanner` | Hierarchical + dynamic example retrieval |
-| `"SAGE"` (alias `"GRACE"`) | `SAGEPlanner` | Sub-goal blocks, symbolic gate, suffix repair, memory examples (used by robot_agent) |
+| `"SAGE"` | `SAGEPlanner` | Sub-goal blocks, symbolic gate, suffix repair, memory examples (used by robot_agent) |
 | `"LLM+P"` | `LLMPPlanner` | LLM to PDDL + classical planner |
 | `"SayCan"` | `SayCanPlanner` | Score candidate actions per step |
 

@@ -1,7 +1,7 @@
 # embodiplan/sage.py
 # ─────────────────────────────────────────────────────────────────────
 # SAGE — Symbolic Action-Gating and Editing planner
-# (formerly GRACE; the "GRACE" registry name is kept as an alias).
+# (an old registry name is kept as a deprecated alias, see __init__.py).
 #
 # Three integrated components:
 #

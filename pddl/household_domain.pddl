@@ -6,7 +6,7 @@
 ;; The operators mirror, one-to-one, the ROBOT_ACTIONS vocabulary and the
 ;; precondition / effect semantics enforced by pyplanner/verifier.py
 ;; (SymbolicState: arrived, found, holding, opened, on).  The point is that
-;; LLM+P (classical-planner hybrid) and SAGE/GRACE (rule verifier) are
+;; LLM+P (classical-planner hybrid) and SAGE (rule verifier) are
 ;; grounded in the SAME world model, so the comparison is fair.
 ;;
 ;; Predicate <-> SymbolicState field mapping:

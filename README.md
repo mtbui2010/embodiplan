@@ -333,7 +333,7 @@ import embodiplan
 planner = embodiplan.sage(model="qwen2.5:7b", gt_path=embodiplan.GT_DATASET)
 ```
 
-`SAGE` was called `GRACE` in earlier versions; the old registry key `"GRACE"` still works.
+SAGE was called GRACE in earlier versions; the old key "GRACE" still works, deprecated.
 
 **Core requirements:** Python 3.10+, `ollama>=0.2.0`, `requests>=2.31.0`
 

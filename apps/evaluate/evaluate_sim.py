@@ -874,7 +874,6 @@ def run_sim_evaluation(
         # task_planning_manuscripts/scripts/run_benchmark.py so that sim-mode results are
         # directly comparable to the plan-quality grid. SAGE-Fixed is the
         # safe_refine variant that is the paper's headline method.
-        # Pre-rename "GRACE*" names are accepted and mapped to "SAGE*".
         _SAGE_FLAGS = {
             "SAGE":            dict(enable_verifier=True,  enable_local_repair=True,  enable_memory=True,  safe_refine=False),
             "SAGE-Fixed":      dict(enable_verifier=True,  enable_local_repair=True,  enable_memory=True,  safe_refine=True),
@@ -887,9 +886,9 @@ def run_sim_evaluation(
             os.path.abspath(__file__)))), "eval_dataset_gt.json")
         for name in methods:
             try:
-                if name.startswith(("SAGE", "GRACE")):
+                if name.startswith("SAGE"):
                     from embodiplan.sage import SAGEPlanner
-                    variant = "SAGE" + name[5:] if name.startswith("GRACE") else name
+                    variant = name
                     flags = _SAGE_FLAGS.get(variant)
                     if flags is None:
                         raise ValueError(f"unknown SAGE variant '{name}'")

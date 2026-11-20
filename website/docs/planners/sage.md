@@ -27,7 +27,7 @@ SAGE is the most complete planner in embodiplan. It splits a task into sub-goals
 
 ## SAGE
 
-The registry key is `"SAGE"`. `"GRACE"` is an alias for the old name.
+The registry key is `"SAGE"`.
 
 ### Inputs and options
 

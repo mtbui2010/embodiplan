@@ -76,8 +76,8 @@ __all__ = [
 ]
 
 # Deprecated names kept so old configs and result files still resolve.
-GRACEPlanner = SAGEPlanner
-ALIASES: dict[str, str] = {"GRACE": "SAGE"}
+GRACEPlanner = SAGEPlanner  # deprecated alias of SAGE
+ALIASES: dict[str, str] = {"GRACE": "SAGE"}  # deprecated alias of SAGE
 
 
 class _Registry(dict):
@@ -248,5 +248,5 @@ def sage(
     )
 
 
-# Deprecated alias of sage().
+# deprecated alias of SAGE
 grace = sage

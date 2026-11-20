@@ -170,7 +170,7 @@ The reply was prose with two bare objects, so step 3 of `parse_steps` rescued bo
 
 The last column was checked by running `cls.name` for every key. Only one differs, and it is set at [`my_planner.py:142`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/my_planner.py#L142). So `metrics.method` for that planner differs from its registry key.
 
-The old name `"GRACE"` is an alias of `"SAGE"`. It resolves on lookup but is not listed when you iterate.
+A deprecated alias of `"SAGE"` (its name before the rename) is kept. It resolves on lookup but is not listed when you iterate.
 
 `get(name, host=DEFAULT_HOST, model=DEFAULT_MODEL, **kwargs)` ([`__init__.py:113-140`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/__init__.py#L113-L140)) looks up the class and calls it with `host`, `model` and your keyword arguments. `list_methods()` returns name, class name and description for each key.
 
@@ -180,7 +180,6 @@ Real output, run offline:
 import embodiplan
 from embodiplan import REGISTRY, get
 print(len(REGISTRY), list(REGISTRY))
-print(REGISTRY["GRACE"].__name__, "GRACE" in REGISTRY, "GRACE" in list(REGISTRY))
 print(embodiplan.get("Direct").host)
 try: get("Foo")
 except ValueError as e: print(e)
@@ -188,7 +187,6 @@ except ValueError as e: print(e)
 
 ```text
 11 ['Direct', 'CoT', 'Few-Shot CoT', 'Self-Refine', 'ReAct', 'Hierarchical', 'LLM Router', 'Hierarchical Few-Shot', 'SAGE', 'LLM+P', 'SayCan']
-SAGEPlanner True False
 http://ollama.aistations.org
 Unknown method 'Foo'. Available: "Direct", "CoT", "Few-Shot CoT", "Self-Refine", "ReAct", "Hierarchical", "LLM Router", "Hierarchical Few-Shot", "SAGE", "LLM+P", "SayCan"
 ```
@@ -197,7 +195,7 @@ The third line shows the default host in action: a planner built without `host=`
 
 ### Shorthand factories
 
-For 10 names the package also exports a lowercase function: `direct`, `cot`, `few_shot`, `self_refine`, `react`, `hierarchical`, `hierarchical_few_shot`, `llm_router`, `sage`, and `grace` (an alias of `sage`) ([`__init__.py:152-252`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/__init__.py#L152-L252)). `LLM+P` and `SayCan` have no factory; use `get("LLM+P")` or the class.
+For 10 names the package also exports a lowercase function: `direct`, `cot`, `few_shot`, `self_refine`, `react`, `hierarchical`, `hierarchical_few_shot`, `llm_router`, `sage`, and a deprecated alias of `sage` ([`__init__.py:152-252`](https://github.com/mtbui2010/embodiplan/blob/76da520/embodiplan/__init__.py#L152-L252)). `LLM+P` and `SayCan` have no factory; use `get("LLM+P")` or the class.
 
 ## Failure modes
 
