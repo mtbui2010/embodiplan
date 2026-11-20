@@ -8,7 +8,8 @@ verified_at: a69064255c69
 SAGE is the most complete planner in embodiplan. It splits a task into sub-goals, asks the LLM to expand each sub-goal into steps, checks every block with the zero-token [action model](../concepts/symbolic-state.md), asks for one correction when a block breaks a rule, and removes repeated steps at the end. This page covers `generate_plan`. What SAGE does after a step fails is on [SAGE, repair and editing](sage-repair.md).
 
 !!! abstract "In this page"
-    - One `generate_plan` makes `1 + N + R` LLM calls: one decompose, one expand per sub-goal (N), and at most `max_refines` refines per block (R).
+    - One `generate_plan` (with no `subgoals=`) makes `1 + N + R` LLM calls: one decompose, one expand per sub-goal (N), and at most `max_refines` refines per block (R).
+    - When the caller passes `subgoals=`, there is no decompose call, and a given sub-goal may carry fixed steps. See [When the caller gives the sub-goals](#when-the-caller-gives-the-sub-goals).
     - The gate checks each block from the running symbolic state. A refine that verifies worse than the block it replaces is dropped.
     - Memory examples are pasted into the decompose, expand and refine prompts. With the default constructor the example pool is **empty**, so nothing is retrieved until you pass `gt_path=` or `live_path=`.
     - `actions=[...]` and `robot_description=` rewrite the four system prompts for a robot with its own actions. The defaults stay byte-identical to version 0.2.3.
@@ -29,7 +30,7 @@ The registry key is `"SAGE"`. `"GRACE"` is an alias for the old name.
 
 ### Inputs and options
 
-`generate_plan(task, obs, visible_objects, *, state=None)` returns `(steps, PlanMetrics)`. See [Plan format](../concepts/plan-format.md) for both.
+`generate_plan(task, obs, visible_objects, *, state=None)` (at the pin) returns `(steps, PlanMetrics)`. See [Plan format](../concepts/plan-format.md) for both.
 
 | argument | meaning |
 |---|---|
@@ -152,6 +153,54 @@ def _worse(self, new_steps, new_report, old_steps, state, visible_objects) -> bo
 | `refine_rejected` | list[bool] | a refine was dropped as worse |
 
 `planner.last_blocks` holds `SubgoalBlock(name, steps, refined, refine_rejected)` for the last plan. `extra` is not in `to_dict()`.
+
+### When the caller gives the sub-goals
+
+!!! note "Newer than the pin"
+    This section describes SAGE 0.2.6 and 0.2.7 and how robot_agent calls it. The rest of this page is pinned at `a69064255c69` (0.2.5), where `generate_plan` has no `subgoals` argument. The 0.2.6 and 0.2.7 commits (`eb79aa9`, `4080017`) are on the `sage-v2/*` branches and are not on `main` at the pin. The robot_agent behaviour below is newer than the pin too. Code in this section is quoted from `embodiplan/sage.py` at commit `4080017`.
+
+A caller that already knows the sub-goals can pass them: `generate_plan(task, obs, visible_objects, *, state=None, subgoals=None, budget=None)`. SAGE then does not decompose. It expands each given sub-goal on its own, one expand call each, plus refines. The symbolic state after one block is the start state of the next. Each expand prompt also says "Plan only this sub-goal; the earlier sub-goals are done (see the state)." Without `subgoals` the behaviour is the one described above.
+
+```python
+        if given:
+            subgoals = []
+            for g in given:
+                name, own = _given_subgoal(g)
+                if not name.strip():
+                    continue
+                if own is not None:
+                    fixed_steps[len(subgoals)] = own
+                subgoals.append(name)
+        else:
+            try:
+                subgoals, in_d, out_d = self._decompose(task, obs, visible_objects, ex_block)
+```
+
+So the calls are `N + R` (no decompose), and fewer when a block is fixed.
+
+**Fixed block.** A given sub-goal may be a string, a pair `(text, steps)` or `{"name": text, "steps": steps}`. With steps it is a fixed block: the caller wrote the steps, and the LLM never does.
+
+```python
+def _given_subgoal(item) -> tuple[str, list[dict] | None]:
+    """(text, own steps or None) of one caller-given sub-goal: a string, ``(text, steps)`` or
+    ``{"name": text, "steps": steps}``."""
+```
+
+For a fixed block there is no expand call, no gate and no refine (`if self.enable_verifier and steps and not block.fixed:`). The state still rolls forward through it: the block is simulated like any other, and the final state is the start of the next block. `SAGEPlanner.fixed_subgoals = True` tells a caller that this form is accepted.
+
+#### How robot_agent uses it
+
+This part is about robot_agent, a separate repository. The behaviour tree is **in robot_agent, not in embodiplan**, and embodiplan's code did not change for it. The full rules are in robot_agent `docs/bt_goal.md` (section "Mixed") and `docs/options.md` (section `bt_goal`).
+
+- robot_agent passes one sub-goal per goal it understood (`AssistLoop._subgoals` in `robot_agent/core/planning/assist_loop.py`). With the option `person_goals`, a goal of a template kind (go, say, deliver) is passed as a fixed block `(text, steps)` (`_lab_subgoals`), so SAGE never rewrites an exact sentence.
+- New option `bt_goal`, key `mixed`. It is on by default, and a robot that declares no behaviour trees gets no change. Goals whose kind has a declared behaviour tree are run by the tree and never reach SAGE. Neighbouring goals without a tree are given to SAGE together in ONE call. That call happens when the run reaches them, so SAGE plans from the world as it is then, after the trees before it have acted. The call goes through `plan_goals(run, goals)` in `robot_agent/core/planning/option_services.py`, which sets the run's goals to that part and then calls `_plan_call(..., subgoals=lp._subgoals(run))`.
+- If a step has no way left, the goals that are left (this part and every goal after it, trees included) go to the SAGE replan once.
+- With no goal that has a tree, SAGE plans the whole run as when the key is off.
+
+**Not covered.**
+
+- A SAGE part planned this way skips robot_agent's loop certify gate. Only SAGE's own verifier runs.
+- No result on the benchmark yet: not measured.
 
 ### replan
 

@@ -71,7 +71,7 @@ It is deterministic and uses no tokens, so it can check every plan block cheaply
 
 ## 6. SAGE combines the pieces
 
-**SAGE decomposes the task, expands each sub-goal, gates each block with the action model, refines at most `max_refines` times, and repairs locally after a failure.**
+**SAGE decomposes the task, expands each sub-goal, gates each block with the action model, refines at most `max_refines` times, and repairs locally after a failure.** When the caller gives the sub-goals, SAGE skips the decompose ([details](planners/sage.md#when-the-caller-gives-the-sub-goals)).
 
 Violations become text feedback for one refine call per block, and a refine that verifies worse is dropped. When a step fails at run time, only the failed sub-goal is re-planned, starting from the believed state. It is the most complete planner in the library.
 
