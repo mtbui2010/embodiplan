@@ -223,6 +223,23 @@ This part is about robot_agent, a separate repository. The behaviour tree is **i
 - If a step has no way left, the goals that are left (this part and every goal after it, trees included) go to the SAGE replan once.
 - With no goal that has a tree, SAGE plans the whole run as when the key is off.
 
+How a run with trees goes (the loop is in robot_agent; SAGE is the "SAGE plans them ONCE" box):
+
+```mermaid
+flowchart TD
+  U["Understand: goals in the reader's order<br/>g1, g2, g3, ..."] --> Q{"Does the next goal<br/>have a usable tree?"}
+  Q -- yes --> T["Tick its tree<br/>each act = one engine step with the recovery ladder<br/>(the planner rung is held back)"]
+  Q -- "no: take the neighbouring goals without a tree" --> S["SAGE plans them ONCE<br/>from the world as it is now<br/>(service plan_goals)"]
+  S --> X["Run the steps one by one<br/>(try_step, with the ladder)"]
+  T --> OK{"Done?"}
+  X --> OK
+  OK -- yes --> N{"More goals?"}
+  N -- yes --> Q
+  N -- no --> E["Plan end: the engine's goal check"]
+  OK -- "no way left in a tree" --> M["Ask once (menu) or stop;<br/>policy sage_once: the goals left go to the SAGE replan"]
+  OK -- "no way left in a SAGE part" --> R["The goals left (this part and every goal after it,<br/>trees included) go to the SAGE replan once"]
+```
+
 **Not covered.**
 
 - A SAGE part planned this way skips robot_agent's loop certify gate. Only SAGE's own verifier runs.
